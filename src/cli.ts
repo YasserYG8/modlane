@@ -1,8 +1,6 @@
 #!/usr/bin/env node
+import { ConfigError, loadConfig } from "./config.js";
 import { startGateway } from "./server.js";
-
-const DEFAULT_HOST = "127.0.0.1";
-const DEFAULT_PORT = 4700; // chosen to avoid framework defaults; overridable later via config
 
 const VERSION = "0.0.1";
 
@@ -28,8 +26,19 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (cmd === "start") {
-    await startGateway({ host: DEFAULT_HOST, port: DEFAULT_PORT });
-    console.log(`modlane gateway listening on http://${DEFAULT_HOST}:${DEFAULT_PORT}`);
+    let loaded;
+    try {
+      loaded = loadConfig();
+    } catch (err) {
+      if (err instanceof ConfigError) {
+        console.error(err.message);
+        return 1;
+      }
+      throw err;
+    }
+    const { host, port } = loaded.config.server;
+    await startGateway({ host, port });
+    console.log(`modlane gateway listening on http://${host}:${port} (config: ${loaded.source})`);
     return 0; // process stays alive on the open server handle
   }
 
