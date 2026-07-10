@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a problem with Modlane
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Do **not** include secrets, API keys, or private source code.
+        For security vulnerabilities, follow SECURITY.md instead of filing a public issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the gateway with ...
+        2. Send request ...
+        3. See error ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - gateway
+        - protocol (openai-chat)
+        - protocol (anthropic-messages)
+        - routing
+        - provider adapter
+        - fallback
+        - telemetry / persistence
+        - cli
+        - configuration
+        - other / unsure
+    validations:
+      required: true
+  - type: input
+    id: agent
+    attributes:
+      label: Coding agent
+      placeholder: OpenCode / Claude Code / Codex / other
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      placeholder: |
+        Modlane version/commit, Node version, OS, provider(s) configured
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Redact anything sensitive.
+      render: shell

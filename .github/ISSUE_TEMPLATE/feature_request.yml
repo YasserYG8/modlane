@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an idea for Modlane
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this solve? Who is affected?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should Modlane do? How does it fit the routing-for-coding-agents focus?
+    validations:
+      required: true
+  - type: dropdown
+    id: version
+    attributes:
+      label: Which roadmap version does this fit?
+      options:
+        - "0.1 static routing"
+        - "0.2 task classification"
+        - "0.3 escalation"
+        - "0.4 agent-step routing"
+        - "0.5 performance history"
+        - "1.0 adaptive routing"
+        - unsure
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

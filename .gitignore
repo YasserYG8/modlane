@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+.yarn/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+modlane.yaml
+config.local.*
+
+# Local data (SQLite telemetry store)
+*.sqlite
+*.sqlite3
+*.db
+data/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage / test output
+coverage/
+.nyc_output/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Local agent tooling (not part of the project)
+.claude/
+.codex/
+.opencode/
