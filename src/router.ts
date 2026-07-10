@@ -3,6 +3,7 @@ import {
   type Attempt,
   type ChatRequest,
   type ChatResult,
+  type StreamChunk,
   makeAdapter,
   sendWithFallback,
 } from "./providers/index.js";
@@ -46,4 +47,19 @@ export async function route(config: Config, req: ChatRequest, env = process.env)
     usedFallback: out.usedFallback,
     result: out.result,
   };
+}
+
+export interface StreamRoute {
+  tier: TierName;
+  provider: string;
+  model: string;
+  stream: AsyncIterable<StreamChunk>;
+}
+
+/** Streaming route. No mid-stream fallback (per design): pick a tier, stream it. */
+export function routeStream(config: Config, req: ChatRequest, env = process.env): StreamRoute {
+  const tier = pickTier(req);
+  const t = config.tiers[tier];
+  const adapter = makeAdapter(config, t.provider, env);
+  return { tier, provider: t.provider, model: t.model, stream: adapter.stream({ ...req, model: t.model }) };
 }

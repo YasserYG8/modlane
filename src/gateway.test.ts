@@ -85,3 +85,51 @@ test("invalid JSON body returns a dialect-shaped 400", async () => {
   const body = (await res.json()) as { type: string; error: { message: string } };
   expect(body.type).toBe("error"); // anthropic error shape
 });
+
+/** Mock upstream that streams OpenAI-style SSE deltas, then usage + [DONE]. */
+async function mockStreamProvider(deltas: string[]): Promise<string> {
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      for (const d of deltas) res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: d } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 3 } })}\n\n`);
+      res.write("data: [DONE]\n\n");
+      res.end();
+    });
+  });
+  servers.push(server);
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const { port } = server.address() as AddressInfo;
+  return `http://127.0.0.1:${port}`;
+}
+
+test("OpenAI inbound streaming returns chat.completion.chunk SSE assembling the text", async () => {
+  const base = await gatewayWith(await mockStreamProvider(["He", "llo"]));
+  const res = await fetch(`${base}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "modlane-balanced", stream: true, messages: [{ role: "user", content: "hi" }] }),
+  });
+  expect(res.headers.get("content-type")).toContain("text/event-stream");
+  const text = await res.text();
+  expect(text).toContain("chat.completion.chunk");
+  expect(text.trimEnd().endsWith("[DONE]")).toBe(true);
+  const content = [...text.matchAll(/"content":"([^"]*)"/g)].map((m) => m[1]).join("");
+  expect(content).toBe("Hello");
+});
+
+test("Anthropic inbound streaming (cross-dialect) returns the message event stream", async () => {
+  const base = await gatewayWith(await mockStreamProvider(["Wor", "ld"]));
+  const res = await fetch(`${base}/v1/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "modlane-balanced", stream: true, max_tokens: 50, messages: [{ role: "user", content: "hi" }] }),
+  });
+  const text = await res.text();
+  expect(text).toContain("event: message_start");
+  expect(text).toContain("event: content_block_delta");
+  expect(text).toContain("event: message_stop");
+  const content = [...text.matchAll(/"text":"([^"]*)"/g)].map((m) => m[1]).join("");
+  expect(content).toContain("World");
+});

@@ -1,9 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { Config } from "./config.js";
-import { ProviderError } from "./providers/index.js";
+import { ProviderError, type StreamChunk } from "./providers/index.js";
 import { parseAnthropicRequest, renderAnthropicError, renderAnthropicResponse } from "./protocols/anthropic.js";
 import { parseOpenAIRequest, renderOpenAIError, renderOpenAIResponse } from "./protocols/openai.js";
-import { route } from "./router.js";
+import { streamAnthropicResponse, streamOpenAIResponse } from "./protocols/stream.js";
+import { route, routeStream } from "./router.js";
 
 type Dialect = "openai" | "anthropic";
 
@@ -63,6 +64,11 @@ async function handleChat(config: Config, req: IncomingMessage, res: ServerRespo
   const chatReq = dialect === "openai" ? parseOpenAIRequest(body) : parseAnthropicRequest(body);
   const requestedModel = typeof body.model === "string" ? body.model : "";
 
+  if (chatReq.stream) {
+    await handleStream(config, res, chatReq, dialect, requestedModel);
+    return;
+  }
+
   try {
     const routed = await route(config, chatReq);
     const payload =
@@ -71,9 +77,49 @@ async function handleChat(config: Config, req: IncomingMessage, res: ServerRespo
         : renderAnthropicResponse(routed.result, requestedModel);
     send(res, 200, payload);
   } catch (err) {
-    const status = err instanceof ProviderError && err.status >= 400 && err.status < 600 ? err.status : 502;
-    sendError(res, dialect, status, err instanceof Error ? err.message : "error");
+    sendError(res, dialect, errorStatus(err), err instanceof Error ? err.message : "error");
   }
+}
+
+async function handleStream(
+  config: Config,
+  res: ServerResponse,
+  chatReq: ReturnType<typeof parseOpenAIRequest>,
+  dialect: Dialect,
+  model: string,
+): Promise<void> {
+  const iterator = routeStream(config, chatReq).stream[Symbol.asyncIterator]();
+
+  // Prime the first chunk so a pre-stream provider error becomes a clean HTTP error
+  // (nothing written yet). After the head is sent, mid-stream errors just end the stream.
+  let first: IteratorResult<StreamChunk>;
+  try {
+    first = await iterator.next();
+  } catch (err) {
+    sendError(res, dialect, errorStatus(err), err instanceof Error ? err.message : "error");
+    return;
+  }
+
+  const chunks = replay(first, iterator);
+  try {
+    if (dialect === "openai") await streamOpenAIResponse(res, chunks, model);
+    else await streamAnthropicResponse(res, chunks, model);
+  } catch {
+    if (!res.writableEnded) res.end(); // mid-stream failure: drop the connection
+  }
+}
+
+async function* replay(first: IteratorResult<StreamChunk>, iterator: AsyncIterator<StreamChunk>): AsyncGenerator<StreamChunk> {
+  if (!first.done) yield first.value;
+  while (true) {
+    const next = await iterator.next();
+    if (next.done) return;
+    yield next.value;
+  }
+}
+
+function errorStatus(err: unknown): number {
+  return err instanceof ProviderError && err.status >= 400 && err.status < 600 ? err.status : 502;
 }
 
 function readJson(req: IncomingMessage): Promise<unknown> {

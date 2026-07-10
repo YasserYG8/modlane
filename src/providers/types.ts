@@ -37,9 +37,17 @@ export interface ChatResult {
   raw: unknown;
 }
 
+/** One incremental piece of a streamed response. `usage`/`stopReason` usually arrive last. */
+export interface StreamChunk {
+  textDelta?: string;
+  stopReason?: StopReason;
+  usage?: Usage;
+}
+
 export interface ProviderAdapter {
   readonly kind: ProviderKind;
   send(req: ChatRequest): Promise<ChatResult>;
+  stream(req: ChatRequest): AsyncIterable<StreamChunk>;
 }
 
 /** Provider or transport failure. `retryable` gates fallback (5xx / 429 / network). */

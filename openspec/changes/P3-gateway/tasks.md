@@ -10,6 +10,9 @@
 - [x] `gateway.test.ts` — OpenAI inbound, cross-dialect Anthropic inbound, invalid-JSON 400
 - [x] Verify: typecheck + 16 tests green
 
-## Next (P3b — streaming)
-- [ ] SSE for OpenAI (`chat.completion.chunk` + `[DONE]`) and Anthropic (`message_start`…`message_stop`)
-- [ ] adapter `stream()` for both providers; tier chosen before first byte; no mid-stream fallback
+## P3b — streaming (done)
+- [x] `providers/sse.ts` — parse SSE response body into {event, data} frames
+- [x] adapter `stream()` for OpenAI (delta + include_usage) and Anthropic (event stream)
+- [x] `protocols/stream.ts` — re-emit neutral chunks as OpenAI `chat.completion.chunk` + `[DONE]` and Anthropic `message_start`…`message_stop`
+- [x] `router.routeStream` (no mid-stream fallback); gateway primes first chunk so pre-stream errors are clean HTTP errors, mid-stream errors drop the connection
+- [x] `gateway.test.ts` — OpenAI + cross-dialect Anthropic streaming (mock SSE provider); 18 tests total green
