@@ -18,7 +18,7 @@ The original 0.1 plan (from-scratch gateway + manual "tier-as-virtual-model" rou
 - Telemetry **self-measures per-tier outcome** so the "how much real work is trivial enough for a cheap model" question gets answered by usage, not assumption.
 - **LiteLLM was considered and rejected** (would force Python; `npx` single-ecosystem adoption won). Don't re-suggest it.
 
-The active plan is **P0–P8** in `project.md` (supersedes old changes 1–10, which remain in `openspec/changes/` only as the pre-pivot record). Current progress: P0 (bootstrap), P1 (config), P2 (provider layer) done; **P3 (gateway inbound) is next**. Streaming is deliberately deferred to P3 so it's built where the gateway exercises it end-to-end.
+The active plan is **P0–P8** in `project.md` (supersedes old changes 1–10, which remain in `openspec/changes/` only as the pre-pivot record). **Current progress: P0–P3b done** — bootstrap, config, provider layer, gateway inbound (both protocols) + streaming — and **verified end-to-end against a real Anthropic provider** (18 tests + a real integration pass; see README "What works today"). **Next: P4 (execution-signals) + P5 (task-classification) — the routing brain**, then P6 (routing) and P7 (self-measuring telemetry). Routing today is a stub in `router.ts` (`pickTier` → balanced).
 
 ## Commands
 
@@ -33,6 +33,8 @@ node dist/cli.js start             # run the built gateway (needs modlane.yaml)
 ```
 
 `modlane start` requires a config: copy `modlane.example.yaml` → `modlane.yaml` (gitignored). Default port **4700** (chosen to avoid framework defaults). Secrets are read from env vars named by each provider's `api_key_env`; never put keys in the config file.
+
+**Running the real gateway:** `node dist/cli.js …` needs a fresh `pnpm run build` first — tests run against `src/` and won't rebuild `dist/`, so a stale `dist/` silently serves old routes (404s). Prefer `pnpm run dev start` (tsx, runs from source, no build step) for manual/integration runs.
 
 ## Architecture (big picture)
 
