@@ -18,4 +18,4 @@ First buildable slice of the pivoted plan (TS/Node, `npx modlane`, routing-brain
 
 ## Status
 
-Done — `npm test` green (2/2), `npm run build` OK, `modlane start` serves `/health`.
+Done — `pnpm test` green (2/2), `pnpm run build` OK, `modlane start` serves `/health`.

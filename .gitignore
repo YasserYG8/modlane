@@ -3,6 +3,9 @@ node_modules/
 .pnp
 .pnp.js
 .yarn/
+# this project uses pnpm; block npm/yarn lockfiles
+package-lock.json
+yarn.lock
 
 # Build output
 dist/

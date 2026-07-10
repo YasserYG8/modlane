@@ -31,12 +31,13 @@ Keep these intact (see `openspec/project.md` for detail):
 # copy the example config and edit it (modlane.yaml is gitignored)
 cp modlane.example.yaml modlane.yaml
 
-# once tooling exists
-npm install
-npm test
-npm run lint
-npm run build
+pnpm install
+pnpm test
+pnpm run typecheck
+pnpm run build
 ```
+
+This project uses **pnpm** (see `packageManager` in `package.json`). Don't commit a `package-lock.json`.
 
 ## Coding standards
 

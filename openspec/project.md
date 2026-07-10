@@ -54,7 +54,7 @@ If a feature does not serve *coding-agent routing*, it does not belong in Modlan
 - **Persistence:** SQLite, single local file. Behind a persistence interface.
 - **Config:** YAML — `modlane.yaml` (CWD) → `~/.modlane/config.yaml`. Env-var overrides for secrets; secrets never stored in the file by default.
 - **Gateway binding:** `127.0.0.1`, no auth in 0.1 (local-first, single user). Auth is an explicit non-goal.
-- **Distribution:** npm package with a `modlane` bin. Compiled standalone binary deferred, non-blocking.
+- **Distribution:** published for `npx modlane` (single `modlane` bin); managed with **pnpm**. Compiled standalone binary deferred, non-blocking.
 - **Error handling** is cross-cutting: each capability owns its own error scenarios; the gateway maps errors to the **inbound protocol's** error shape (OpenAI or Anthropic). It is not a standalone capability.
 
 ## Pivot — post-validation (2026-07-10)
@@ -79,7 +79,7 @@ Telemetry records **outcome/cost per tier** (test-pass signals appear in later m
 Coding Agent → Modlane (TS/Node): inbound → signals → classify → route → provider adapter → Model Provider
 ```
 
-Modlane owns a thin inbound layer (OpenAI `/v1/chat/completions` for OpenCode/Codex; Anthropic `/v1/messages` for Claude Code) and two minimal provider adapters (OpenAI-compat + Anthropic). The value is the middle: extract execution signals → classify difficulty/type → route (direct for trivial/hard, escalate only the middle band) → record per-tier outcome. Shipped as an npm package (`npx modlane`).
+Modlane owns a thin inbound layer (OpenAI `/v1/chat/completions` for OpenCode/Codex; Anthropic `/v1/messages` for Claude Code) and two minimal provider adapters (OpenAI-compat + Anthropic). The value is the middle: extract execution signals → classify difficulty/type → route (direct for trivial/hard, escalate only the middle band) → record per-tier outcome. Shipped for `npx modlane`.
 
 ### Revised 0.1 change list (supersedes the map below)
 

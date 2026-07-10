@@ -15,39 +15,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check for Node project
-        id: node
-        run: |
-          if [ -f package.json ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "No package.json yet (planning phase) — skipping build/test."
-          fi
+      - uses: pnpm/action-setup@v4
 
-      - name: Setup Node
-        if: steps.node.outputs.present == 'true'
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: pnpm
 
       - name: Install
-        if: steps.node.outputs.present == 'true'
-        run: npm ci
-
-      - name: Lint
-        if: steps.node.outputs.present == 'true'
-        run: npm run lint --if-present
+        run: pnpm install --frozen-lockfile
 
       - name: Type check
-        if: steps.node.outputs.present == 'true'
-        run: npm run typecheck --if-present
+        run: pnpm run typecheck
 
       - name: Test
-        if: steps.node.outputs.present == 'true'
-        run: npm test --if-present
+        run: pnpm test
 
       - name: Build
-        if: steps.node.outputs.present == 'true'
-        run: npm run build --if-present
+        run: pnpm run build

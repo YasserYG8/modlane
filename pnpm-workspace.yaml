@@ -1,0 +1,4 @@
+# esbuild (used by tsx + vitest) needs its install script to link the platform binary.
+# pnpm blocks build scripts by default; allow it explicitly here.
+allowBuilds:
+  esbuild: true
