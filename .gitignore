@@ -45,3 +45,7 @@ Thumbs.db
 .claude/
 .codex/
 .opencode/
+
+# Local experiment scratch (cloned tools / benchmark output, not part of the project)
+/aider/
+/tmp.benchmarks/

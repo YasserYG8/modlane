@@ -57,6 +57,46 @@ If a feature does not serve *coding-agent routing*, it does not belong in Modlan
 - **Distribution:** npm package with a `modlane` bin. Compiled standalone binary deferred, non-blocking.
 - **Error handling** is cross-cutting: each capability owns its own error scenarios; the gateway maps errors to the **inbound protocol's** error shape (OpenAI or Anthropic). It is not a standalone capability.
 
+## Pivot — post-validation (2026-07-10)
+
+A pre-build experiment (`experiments/escalation-hypothesis.md`) tested the one defensible claim — failure-aware escalation — on real coding tasks. **Result: naive escalation lost money** (Haiku→Sonnet cost 31% *more* than always-Sonnet, because Haiku failed 86% of hard tasks and became pure overhead). The experiment also exposed that the original 0.1 (from-scratch gateway + manual tier-as-virtual-model) is mostly commodity work LiteLLM and the agents already do.
+
+**Decision: keep building, but redesign to attack the three weaknesses the evidence exposed.** This section supersedes the original capability map, roadmap, and change plan below where they conflict.
+
+### The three attacks
+
+1. **Escalation from a too-weak model loses.** → **Classification-first, escalation-second.** Predict task difficulty/type on the way in; route trivial→cheap and hard→powerful *directly*; escalate only the uncertain **middle band**. Never feed hard tasks to a model that fails them.
+2. **Static routing is commodity (the agents already do it).** → **Make the routing BRAIN the product, not the plumbing.** The differentiator is classification + execution signals + per-repo/task learning — not the gateway. Build the plumbing minimally in TS/Node: Modlane needs only two provider shapes (OpenAI-compat, covering OpenAI/OpenRouter/local, plus Anthropic), so the gateway and adapters stay small. Distribution: `npx modlane`, single ecosystem, zero prerequisites — chosen for adoption over a Python/LiteLLM base.
+3. **The proxy can't see the agent's "step".** → **Mine the signals it CAN see** in the request stream: tool-call history, test-failure `tool_result`s, files touched, repeated edits, context size. That IS the execution-aware signal — no need to know the abstract step.
+
+### Self-measuring — validate while building
+
+Telemetry records **outcome/cost per tier** (test-pass signals appear in later messages of the same conversation, grouped by correlation key). This embeds the missing "what fraction of real work is trivial enough for a cheap model" experiment into normal usage: use Modlane, read the telemetry, see if cheap actually works. Build and validate at once.
+
+### Revised architecture
+
+```
+Coding Agent → Modlane (TS/Node): inbound → signals → classify → route → provider adapter → Model Provider
+```
+
+Modlane owns a thin inbound layer (OpenAI `/v1/chat/completions` for OpenCode/Codex; Anthropic `/v1/messages` for Claude Code) and two minimal provider adapters (OpenAI-compat + Anthropic). The value is the middle: extract execution signals → classify difficulty/type → route (direct for trivial/hard, escalate only the middle band) → record per-tier outcome. Shipped as an npm package (`npx modlane`).
+
+### Revised 0.1 change list (supersedes the map below)
+
+| # | Change | Note |
+|---|---|---|
+| P0 | bootstrap (TS/Node, `modlane` npx bin) | revises old change 0 |
+| P1 | configuration (tiers, providers, classifier thresholds) | adapts old change 1 |
+| P2 | provider-layer (OpenAI-compat + Anthropic adapters) + fallback | trims old change 2 to two provider shapes |
+| P3 | gateway (thin inbound: OpenAI `/v1/chat/completions` + Anthropic `/v1/messages`) | trims old changes 4 + 8 |
+| P4 | execution-signals (extract routing signals from the request stream) | NEW — the PD3 attack |
+| P5 | task-classification (heuristic difficulty/type, no ML) | promoted from 0.2 — the PD1 attack |
+| P6 | routing (classification + signals → tier; escalate only the middle band) | adapts old change 3 |
+| P7 | telemetry-persistence (per-decision + cost + **per-tier outcome** = self-measurement) | adapts old change 5 |
+| P8 | cli (start/status/models/stats, stats shows per-tier success) | keeps old change 6 |
+
+The **core value** is P4–P7 (signals, classification, routing brain, self-measuring telemetry). P0–P3 are the minimal plumbing to reach it. Modlane builds only two provider shapes (OpenAI-compat + Anthropic) — no from-scratch reimplementation of a 100-provider matrix. Old changes 1–10 stay in git as the pre-pivot record; new work follows P0–P8.
+
 ## Open decisions (deferred, do not block 0.1)
 
 - **OD-3 Request→task correlation.** Escalation, step-routing, and performance-history need to group requests into one coding task. The OpenAI API is stateless. Mechanism (session header vs heuristic) is undecided, but telemetry in 0.1 records a correlation key from day one so later versions need no backfill.

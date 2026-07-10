@@ -1,0 +1,37 @@
+{
+  "name": "modlane",
+  "version": "0.0.1",
+  "description": "Adaptive AI model router for coding agents — the right model for every step.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "modlane": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "model-router",
+    "coding-agents",
+    "openai",
+    "anthropic"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
