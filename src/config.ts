@@ -37,7 +37,7 @@ const TIERS: readonly TierName[] = ["fast", "balanced", "powerful"];
 const KINDS: readonly ProviderKind[] = ["openai", "anthropic", "openai-compatible"];
 
 /** Thrown for any invalid or missing configuration. Message is user-facing. */
-export class ConfigError extends Error {}
+export class ConfigError extends Error { }
 
 function fail(msg: string): never {
   throw new ConfigError(msg);
@@ -151,7 +151,6 @@ function readPrices(v: unknown): Config["prices"] {
   return out;
 }
 
-/** Resolve a provider's API key from its configured env var. Returns null when the provider needs no key. */
 export function resolveApiKey(config: Config, providerName: string, env = process.env): string | null {
   const provider = config.providers[providerName];
   if (!provider) fail(`unknown provider "${providerName}"`);

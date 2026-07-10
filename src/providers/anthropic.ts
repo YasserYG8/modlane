@@ -1,5 +1,11 @@
-import type { ChatRequest, ChatResult, ProviderAdapter } from "./types.js";
+import type { ChatRequest, ChatResult, ProviderAdapter, StopReason } from "./types.js";
 import { postJson, trimSlash } from "./http.js";
+
+function neutralStop(stopReason: string | undefined): StopReason {
+  if (stopReason === "max_tokens") return "length";
+  if (stopReason === "tool_use") return "tool_use";
+  return "stop";
+}
 
 const ANTHROPIC_VERSION = "2023-06-01";
 
@@ -46,7 +52,7 @@ export class AnthropicAdapter implements ProviderAdapter {
       .join("");
     return {
       text,
-      stopReason: json.stop_reason ?? "end_turn",
+      stopReason: neutralStop(json.stop_reason),
       usage: {
         promptTokens: json.usage?.input_tokens ?? null,
         completionTokens: json.usage?.output_tokens ?? null,

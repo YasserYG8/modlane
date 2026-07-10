@@ -48,6 +48,8 @@ Thumbs.db
 .claude/
 .codex/
 .opencode/
+.agents/
+skills-lock.json
 
 # Local experiment scratch (cloned tools / benchmark output, not part of the project)
 /aider/

@@ -37,7 +37,7 @@ async function main(argv: string[]): Promise<number> {
       throw err;
     }
     const { host, port } = loaded.config.server;
-    await startGateway({ host, port });
+    await startGateway(loaded.config, { host, port });
     console.log(`modlane gateway listening on http://${host}:${port} (config: ${loaded.source})`);
     return 0; // process stays alive on the open server handle
   }

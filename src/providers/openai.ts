@@ -1,6 +1,12 @@
-import type { ChatRequest, ChatResult, ProviderAdapter } from "./types.js";
+import type { ChatRequest, ChatResult, ProviderAdapter, StopReason } from "./types.js";
 import type { ProviderKind } from "../config.js";
 import { postJson, trimSlash } from "./http.js";
+
+function neutralStop(finishReason: string | undefined): StopReason {
+  if (finishReason === "length") return "length";
+  if (finishReason === "tool_calls") return "tool_use";
+  return "stop";
+}
 
 interface OpenAIResponse {
   choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
@@ -33,7 +39,7 @@ export class OpenAICompatAdapter implements ProviderAdapter {
     const choice = json.choices?.[0];
     return {
       text: choice?.message?.content ?? "",
-      stopReason: choice?.finish_reason ?? "stop",
+      stopReason: neutralStop(choice?.finish_reason),
       usage: {
         promptTokens: json.usage?.prompt_tokens ?? null,
         completionTokens: json.usage?.completion_tokens ?? null,

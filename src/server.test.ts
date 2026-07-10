@@ -1,13 +1,17 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 import type { Server } from "node:http";
 import { AddressInfo } from "node:net";
+import type { Config } from "./config.js";
 import { startGateway } from "./server.js";
+
+// /health and 404 never read config; a bare cast is enough for this file.
+const EMPTY = {} as Config;
 
 let server: Server;
 let base: string;
 
 beforeAll(async () => {
-  server = await startGateway({ host: "127.0.0.1", port: 0 }); // 0 = ephemeral port
+  server = await startGateway(EMPTY, { host: "127.0.0.1", port: 0 }); // 0 = ephemeral port
   const { port } = server.address() as AddressInfo;
   base = `http://127.0.0.1:${port}`;
 });

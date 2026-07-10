@@ -26,9 +26,12 @@ export interface Usage {
   estimated: boolean;
 }
 
+/** Provider-neutral stop reason; protocol renderers map it back to each dialect. */
+export type StopReason = "stop" | "length" | "tool_use";
+
 export interface ChatResult {
   text: string;
-  stopReason: string;
+  stopReason: StopReason;
   usage: Usage;
   model: string;
   raw: unknown;
