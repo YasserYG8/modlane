@@ -28,6 +28,9 @@ Keep these intact (see `openspec/project.md` for detail):
 > Runtime: **TypeScript / Node**. Tooling lands with change `0-bootstrap-project`.
 
 ```bash
+# copy the example config and edit it (modlane.yaml is gitignored)
+cp modlane.example.yaml modlane.yaml
+
 # once tooling exists
 npm install
 npm test

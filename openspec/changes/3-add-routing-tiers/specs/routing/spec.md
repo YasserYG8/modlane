@@ -22,7 +22,7 @@ The system SHALL route by mapping the requested virtual model name to a tier.
 
 #### Scenario: Unknown virtual model
 - **WHEN** a request names a model not mapped to any tier
-- **THEN** the system returns an OpenAI-shaped error identifying the unknown model
+- **THEN** the system returns a protocol-shaped error (in the inbound protocol's error shape) identifying the unknown model
 
 ### Requirement: Deterministic strategy
 The router SHALL evaluate rules in an explicit, ordered strategy and produce the same decision for the same inputs.

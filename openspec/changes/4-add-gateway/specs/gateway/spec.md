@@ -9,6 +9,24 @@ The gateway SHALL run an HTTP server bound to `127.0.0.1` and SHALL NOT require 
 - **WHEN** the gateway starts
 - **THEN** it listens on the loopback interface only
 
+#### Scenario: Inbound auth header ignored
+- **WHEN** an agent (e.g. Claude Code) sends an `Authorization` or `x-api-key` header to the gateway
+- **THEN** the gateway ignores it and does not treat it as required
+
+### Requirement: Health endpoint
+The gateway SHALL expose `GET /health` returning a success status while running, so `modlane status` can confirm liveness.
+
+#### Scenario: Health check while running
+- **WHEN** the gateway is running and receives `GET /health`
+- **THEN** it responds with a 2xx status
+
+### Requirement: No rate limiting in 0.1
+The gateway SHALL NOT impose rate limiting or request-size limits in 0.1. This is an explicit non-goal for a local, single-user tool.
+
+#### Scenario: No throttling
+- **WHEN** many requests arrive in quick succession from the local agent
+- **THEN** the gateway does not throttle or reject them on rate grounds
+
 ### Requirement: Protocol-agnostic core
 The gateway core SHALL dispatch each inbound request to the matching inbound protocol adapter and SHALL NOT contain protocol-specific request logic itself.
 

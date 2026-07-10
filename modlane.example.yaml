@@ -1,0 +1,53 @@
+# Modlane configuration — copy to `modlane.yaml` and edit.
+#   cp modlane.example.yaml modlane.yaml
+# `modlane.yaml` is gitignored. Secrets are read from environment variables,
+# never stored here. Modlane looks for `modlane.yaml` in the current directory,
+# then falls back to `~/.modlane/config.yaml`.
+
+server:
+  host: 127.0.0.1
+  port: 4700
+
+router:
+  strategy: rules            # 0.1: only 'rules'
+
+# Map each tier to a provider + concrete model.
+tiers:
+  fast:     { provider: openrouter, model: <fast-model-id> }
+  balanced: { provider: anthropic,  model: <balanced-model-id> }
+  powerful: { provider: openai,     model: <powerful-model-id> }
+
+# Provider backends. `api_key_env` names the env var holding the secret.
+providers:
+  openai:
+    kind: openai
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+  anthropic:
+    kind: anthropic
+    base_url: https://api.anthropic.com
+    api_key_env: ANTHROPIC_API_KEY
+  openrouter:
+    kind: openai-compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+  local:
+    kind: openai-compatible
+    base_url: http://127.0.0.1:11434/v1   # e.g. Ollama
+    api_key_env: null
+
+# Optional per-tier alternate provider, tried when the primary fails.
+fallback:
+  fast: { provider: local, model: <local-fallback-model-id> }
+
+# Anthropic requires max_tokens; injected when an OpenAI-inbound request omits it.
+anthropic_defaults:
+  max_tokens: 4096
+
+telemetry:
+  store: ./modlane.sqlite
+  capture_content: false     # privacy default; opt-in only
+
+# Optional price map for cost estimates. Omit a model → its cost is recorded as null.
+prices:
+  <powerful-model-id>: { input_per_mtok: 0.0, output_per_mtok: 0.0 }

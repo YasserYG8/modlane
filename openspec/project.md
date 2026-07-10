@@ -55,7 +55,7 @@ If a feature does not serve *coding-agent routing*, it does not belong in Modlan
 - **Config:** YAML — `modlane.yaml` (CWD) → `~/.modlane/config.yaml`. Env-var overrides for secrets; secrets never stored in the file by default.
 - **Gateway binding:** `127.0.0.1`, no auth in 0.1 (local-first, single user). Auth is an explicit non-goal.
 - **Distribution:** npm package with a `modlane` bin. Compiled standalone binary deferred, non-blocking.
-- **Error handling** is cross-cutting: each capability owns its own error scenarios; the gateway owns OpenAI-shaped error mapping. It is not a standalone capability.
+- **Error handling** is cross-cutting: each capability owns its own error scenarios; the gateway maps errors to the **inbound protocol's** error shape (OpenAI or Anthropic). It is not a standalone capability.
 
 ## Open decisions (deferred, do not block 0.1)
 

@@ -13,7 +13,7 @@ When the primary provider for a tier fails, the system SHALL attempt the configu
 #### Scenario: No alternate configured
 - **WHEN** the primary provider fails
 - **AND** no alternate is configured for that tier
-- **THEN** the system returns an OpenAI-shaped error to the agent
+- **THEN** the system returns a protocol-shaped error to the agent (in the inbound protocol's error shape)
 
 #### Scenario: Fallback recorded
 - **WHEN** a request is served by an alternate provider after a primary failure

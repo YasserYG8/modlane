@@ -15,6 +15,7 @@ build/
 !.env.example
 *.pem
 modlane.yaml
+!modlane.example.yaml
 config.local.*
 
 # Local data (SQLite telemetry store)
