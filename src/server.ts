@@ -62,6 +62,8 @@ async function handleChat(config: Config, req: IncomingMessage, res: ServerRespo
   }
 
   const chatReq = dialect === "openai" ? parseOpenAIRequest(body) : parseAnthropicRequest(body);
+  chatReq.dialect = dialect;
+  chatReq.rawBody = body;
   const requestedModel = typeof body.model === "string" ? body.model : "";
 
   if (chatReq.stream) {
