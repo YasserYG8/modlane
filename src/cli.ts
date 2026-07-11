@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { ConfigError, loadConfig } from "./config.js";
+import { loadDotEnv } from "./env.js";
 import { startGateway } from "./server.js";
+
+// Load local environment variables from .env before anything reads process.env.
+loadDotEnv();
 
 const VERSION = "0.0.1";
 

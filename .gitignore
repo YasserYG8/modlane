@@ -54,3 +54,4 @@ skills-lock.json
 # Local experiment scratch (cloned tools / benchmark output, not part of the project)
 /aider/
 /tmp.benchmarks/
+modlane.yaml
