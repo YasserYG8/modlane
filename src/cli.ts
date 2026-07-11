@@ -1,4 +1,32 @@
 #!/usr/bin/env node
+import { existsSync, readFileSync } from "node:fs";
+
+// Load local environment variables from .env if present
+if (existsSync(".env")) {
+  try {
+    if (typeof process.loadEnvFile === "function") {
+      process.loadEnvFile(".env");
+    } else {
+      // Fallback parser for Node.js versions < 20.12
+      const content = readFileSync(".env", "utf8");
+      for (const line of content.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const idx = trimmed.indexOf("=");
+        if (idx === -1) continue;
+        const key = trimmed.slice(0, idx).trim();
+        let val = trimmed.slice(idx + 1).trim();
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+          val = val.slice(1, -1);
+        }
+        process.env[key] = val;
+      }
+    }
+  } catch (err) {
+    console.warn("Warning: Failed to parse .env file:", err);
+  }
+}
+
 import { ConfigError, loadConfig } from "./config.js";
 import { startGateway } from "./server.js";
 
