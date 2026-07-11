@@ -17,7 +17,11 @@ export interface ChatRequest {
   stream?: boolean;
   /** Provider-native tool definitions, passed through unchanged. */
   tools?: unknown;
+  /** The inbound dialect and original raw body for execution signal mining. */
+  dialect?: "openai" | "anthropic";
+  rawBody?: unknown;
 }
+
 
 export interface Usage {
   promptTokens: number | null;
