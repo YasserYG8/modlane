@@ -48,16 +48,18 @@ function extractFilePath(args: unknown): string | null {
   return null;
 }
 
+/**
+ * Word-boundary matching avoids substring false positives ("failover", "failsafe"
+ * are not failures). `fail` variants, `error:`, assertion/exit/command markers count.
+ */
+const FAILURE_RE = /\bfail(ed|ing|ure|s)?\b|error:|assertion\s?error|exit status|command failed/i;
+
 function isFailureContent(content: string): boolean {
-  const normalized = content.toLowerCase();
-  return (
-    normalized.includes("fail") ||
-    normalized.includes("error:") ||
-    normalized.includes("assertionerror") ||
-    normalized.includes("exit status") ||
-    normalized.includes("command failed")
-  );
+  return FAILURE_RE.test(content);
 }
+
+/** A failure result that specifically points at a test run. */
+const TEST_FAILURE_RE = /\btests?\b|\bfail(ed|ing|ure|s)?\b/i;
 
 export function extractSignals(req: ChatRequest): ExecutionSignals {
   const signals: ExecutionSignals = {
@@ -169,7 +171,7 @@ export function extractSignals(req: ChatRequest): ExecutionSignals {
   for (const res of signals.toolResults) {
     if (res.isError) {
       consecutive++;
-      if (res.content.toLowerCase().includes("test") || res.content.toLowerCase().includes("fail")) {
+      if (TEST_FAILURE_RE.test(res.content)) {
         signals.hasTestFailures = true;
       }
     } else {

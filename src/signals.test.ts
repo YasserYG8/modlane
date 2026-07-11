@@ -196,3 +196,28 @@ test("correctly calculates consecutive failures", () => {
   const signals = extractSignals(req);
   expect(signals.consecutiveFailures).toBe(3);
 });
+
+test("does not flag benign words containing 'fail' as failures", () => {
+  const rawBody = {
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "1", content: "failover completed; failsafe engaged" },
+        ],
+      },
+    ],
+  };
+
+  const req: ChatRequest = {
+    model: "test-model",
+    messages: [{ role: "user", content: "" }],
+    dialect: "anthropic",
+    rawBody,
+  };
+
+  const signals = extractSignals(req);
+  expect(signals.toolResults[0].isError).toBe(false);
+  expect(signals.hasTestFailures).toBe(false);
+  expect(signals.consecutiveFailures).toBe(0);
+});
