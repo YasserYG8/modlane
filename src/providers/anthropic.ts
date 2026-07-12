@@ -42,7 +42,13 @@ export class AnthropicAdapter implements ProviderAdapter {
     if (req.temperature != null) body.temperature = req.temperature;
     if (req.tools != null) body.tools = req.tools;
     const headers: Record<string, string> = { "anthropic-version": ANTHROPIC_VERSION };
-    if (this.apiKey) headers["x-api-key"] = this.apiKey;
+    if (req.headers?.["authorization"]) {
+      headers["authorization"] = req.headers["authorization"];
+    } else if (req.headers?.["x-api-key"]) {
+      headers["x-api-key"] = req.headers["x-api-key"];
+    } else if (this.apiKey) {
+      headers["x-api-key"] = this.apiKey;
+    }
     return { url: `${trimSlash(this.baseUrl)}/v1/messages`, headers, body };
   }
 

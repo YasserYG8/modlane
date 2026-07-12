@@ -20,6 +20,7 @@ export interface ChatRequest {
   /** The inbound dialect and original raw body for execution signal mining. */
   dialect?: "openai" | "anthropic";
   rawBody?: unknown;
+  headers?: Record<string, string>;
 }
 
 

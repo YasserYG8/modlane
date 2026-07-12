@@ -24,8 +24,37 @@ export function pickTier(_req: ChatRequest): TierName {
   return "balanced";
 }
 
+function resolveProviderForModel(config: Config, model: string): string {
+  const isAnthropic = model.startsWith("claude");
+  for (const [name, prov] of Object.entries(config.providers)) {
+    if (isAnthropic && prov.kind === "anthropic") {
+      return name;
+    }
+    if (!isAnthropic && (prov.kind === "openai" || prov.kind === "openai-compatible")) {
+      return name;
+    }
+  }
+  return Object.keys(config.providers)[0] || "";
+}
+
 /** Resolve a tier to a concrete provider/model and execute, with same-tier fallback. */
 export async function route(config: Config, req: ChatRequest, env = process.env): Promise<RouteResult> {
+  const isVirtual = req.model.startsWith("modlane-");
+
+  if (!isVirtual) {
+    // Direct Concrete Model Routing (bypassing virtual tiers)
+    const provider = resolveProviderForModel(config, req.model);
+    const adapter = makeAdapter(config, provider, env);
+    const result = await adapter.send(req);
+    return {
+      tier: "balanced",
+      provider,
+      model: req.model,
+      usedFallback: false,
+      result,
+    };
+  }
+
   const tier = pickTier(req);
   const primaryTier = config.tiers[tier];
   const primary: Attempt = {
@@ -58,6 +87,19 @@ export interface StreamRoute {
 
 /** Streaming route. No mid-stream fallback (per design): pick a tier, stream it. */
 export function routeStream(config: Config, req: ChatRequest, env = process.env): StreamRoute {
+  const isVirtual = req.model.startsWith("modlane-");
+
+  if (!isVirtual) {
+    const provider = resolveProviderForModel(config, req.model);
+    const adapter = makeAdapter(config, provider, env);
+    return {
+      tier: "balanced",
+      provider,
+      model: req.model,
+      stream: adapter.stream(req),
+    };
+  }
+
   const tier = pickTier(req);
   const t = config.tiers[tier];
   const adapter = makeAdapter(config, t.provider, env);
