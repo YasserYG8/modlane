@@ -266,6 +266,8 @@ CODEX_API_BASE="http://127.0.0.1:4700/v1"
 
     process.on("SIGINT", cleanup);
     process.on("SIGTERM", cleanup);
+    process.on("SIGHUP", cleanup);
+    process.on("SIGBREAK", cleanup);
     process.on("exit", () => {
       restoreBaseUrl();
     });
