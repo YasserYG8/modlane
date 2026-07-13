@@ -18,6 +18,52 @@ loadDotEnv();
 
 const VERSION = "0.0.1";
 
+let originalBaseUrl: string | undefined = undefined;
+let settingsUpdated = false;
+
+function getSettingsPath(): string {
+  return join(homedir(), ".gemini", "antigravity-cli", "settings.json");
+}
+
+function injectBaseUrl(): void {
+  const path = getSettingsPath();
+  if (!existsSync(path)) return;
+
+  try {
+    const content = readFileSync(path, "utf8");
+    const settings = JSON.parse(content);
+    originalBaseUrl = settings.base_url;
+    settings.base_url = "http://127.0.0.1:4700/v1";
+    writeFileSync(path, JSON.stringify(settings, null, 2));
+    settingsUpdated = true;
+    console.log(`[Lifecycle] Automatically updated agy base_url -> http://127.0.0.1:4700/v1`);
+  } catch (err) {
+    console.warn(`[Lifecycle] Warning: Failed to inject base_url:`, err);
+  }
+}
+
+function restoreBaseUrl(): void {
+  if (!settingsUpdated) return;
+
+  const path = getSettingsPath();
+  if (!existsSync(path)) return;
+
+  try {
+    const content = readFileSync(path, "utf8");
+    const settings = JSON.parse(content);
+    if (originalBaseUrl === undefined) {
+      delete settings.base_url;
+    } else {
+      settings.base_url = originalBaseUrl;
+    }
+    writeFileSync(path, JSON.stringify(settings, null, 2));
+    console.log(`[Lifecycle] Automatically restored agy base_url to original state.`);
+    settingsUpdated = false;
+  } catch (err) {
+    console.warn(`[Lifecycle] Warning: Failed to restore base_url:`, err);
+  }
+}
+
 function usage(): void {
   console.log(`modlane ${VERSION}
 
@@ -140,7 +186,7 @@ async function main(argv: string[]): Promise<number> {
     }
 
     let yamlContent = "";
-    const envContent = "# No keys needed for session passthrough\n";
+    let envContent = "";
 
     if (flag === "--claude") {
       const defaults = {
@@ -149,6 +195,9 @@ async function main(argv: string[]): Promise<number> {
         powerful: "claude-3-opus-latest",
       };
       yamlContent = getClaudeTemplate(defaults);
+      envContent = `# Redirect Claude Code to local Modlane proxy
+CLAUDE_BASE_URL="http://127.0.0.1:4700/v1"
+`;
     } else if (flag === "--agy") {
       const defaults = {
         fast: "gemini-3.5-flash",
@@ -159,20 +208,9 @@ async function main(argv: string[]): Promise<number> {
       const models = getAgyModels();
       const classified = classifyModels(models, defaults);
       yamlContent = getAgyTemplate(classified);
-
-      // Automatically configure global settings.json for agy
-      const settingsPath = join(homedir(), ".gemini", "antigravity-cli", "settings.json");
-      if (existsSync(settingsPath)) {
-        try {
-          const content = readFileSync(settingsPath, "utf8");
-          const settings = JSON.parse(content);
-          settings.base_url = "http://127.0.0.1:4700/v1";
-          writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-          console.log(`Automatically configured base_url in settings.json (${settingsPath})`);
-        } catch (err) {
-          console.warn(`Warning: Could not automatically update settings.json:`, err);
-        }
-      }
+      envContent = `# Redirect Antigravity (agy) to local Modlane proxy
+ANTIGRAVITY_BASE_URL="http://127.0.0.1:4700"
+`;
     } else if (flag === "--codex") {
       const defaults = {
         fast: "gpt-5.4-mini",
@@ -183,6 +221,9 @@ async function main(argv: string[]): Promise<number> {
       const models = getCodexModels();
       const classified = classifyModels(models, defaults);
       yamlContent = getCodexTemplate(classified);
+      envContent = `# Redirect Codex to local Modlane proxy
+CODEX_API_BASE="http://127.0.0.1:4700/v1"
+`;
     }
 
     try {
@@ -213,6 +254,22 @@ async function main(argv: string[]): Promise<number> {
       }
       throw err;
     }
+
+    // Intercept config on startup
+    injectBaseUrl();
+
+    // Register cleanup handlers
+    const cleanup = () => {
+      restoreBaseUrl();
+      process.exit(0);
+    };
+
+    process.on("SIGINT", cleanup);
+    process.on("SIGTERM", cleanup);
+    process.on("exit", () => {
+      restoreBaseUrl();
+    });
+
     const { host, port } = loaded.config.server;
     await startGateway(loaded.config, { host, port });
     console.log(`modlane gateway listening on http://${host}:${port} (config: ${loaded.source})`);

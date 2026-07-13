@@ -134,7 +134,7 @@ async function handle(config: Config, req: IncomingMessage, res: ServerResponse)
     }
     return;
   }
-  if (req.method === "POST" && req.url === "/v1/chat/completions") {
+  if (req.method === "POST" && (req.url === "/v1/chat/completions" || req.url === "/chat/completions")) {
     await handleChat(config, req, res, "openai");
     return;
   }
