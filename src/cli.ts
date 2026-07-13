@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync, readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { ConfigError, loadConfig } from "./config.js";
 import { loadDotEnv } from "./env.js";
 import { startGateway } from "./server.js";
@@ -157,6 +159,20 @@ async function main(argv: string[]): Promise<number> {
       const models = getAgyModels();
       const classified = classifyModels(models, defaults);
       yamlContent = getAgyTemplate(classified);
+
+      // Automatically configure global settings.json for agy
+      const settingsPath = join(homedir(), ".gemini", "antigravity-cli", "settings.json");
+      if (existsSync(settingsPath)) {
+        try {
+          const content = readFileSync(settingsPath, "utf8");
+          const settings = JSON.parse(content);
+          settings.base_url = "http://127.0.0.1:4700/v1";
+          writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+          console.log(`Automatically configured base_url in settings.json (${settingsPath})`);
+        } catch (err) {
+          console.warn(`Warning: Could not automatically update settings.json:`, err);
+        }
+      }
     } else if (flag === "--codex") {
       const defaults = {
         fast: "gpt-5.4-mini",
