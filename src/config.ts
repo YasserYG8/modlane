@@ -10,6 +10,7 @@ export interface ProviderConfig {
   kind: ProviderKind;
   baseUrl: string;
   apiKeyEnv: string | null;
+  models?: Record<string, string>;
 }
 
 export interface TierConfig {
@@ -92,6 +93,7 @@ function validate(root: unknown, source: string): Config {
       kind,
       baseUrl: asString(p.base_url, `providers.${name}.base_url`),
       apiKeyEnv: p.api_key_env == null ? null : asString(p.api_key_env, `providers.${name}.api_key_env`),
+      models: p.models == null ? undefined : readModelMap(p.models, `providers.${name}.models`),
     };
   }
 
@@ -147,6 +149,15 @@ function readPrices(v: unknown): Config["prices"] {
       inputPerMtok: asNumber(p.input_per_mtok, `prices.${model}.input_per_mtok`),
       outputPerMtok: asNumber(p.output_per_mtok, `prices.${model}.output_per_mtok`),
     };
+  }
+  return out;
+}
+
+function readModelMap(v: unknown, where: string): Record<string, string> {
+  const raw = asObject(v, where);
+  const out: Record<string, string> = {};
+  for (const [key, val] of Object.entries(raw)) {
+    out[key] = asString(val, `${where}.${key}`);
   }
   return out;
 }

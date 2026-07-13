@@ -32,3 +32,20 @@ test("unknown route returns 404 error shape", async () => {
   const body = (await res.json()) as { error: { type: string } };
   expect(body.error.type).toBe("not_found");
 });
+
+test("GET /v1/models returns the list of agy and codex models", async () => {
+  const res = await fetch(`${base}/v1/models`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { data: Array<{ id: string; object: string }> };
+  expect(body.data).toBeInstanceOf(Array);
+  expect(body.data.some(m => m.id === "gemini-3.5-flash")).toBe(true);
+  expect(body.data.some(m => m.id === "gpt-5.5")).toBe(true);
+});
+
+test("GET /models returns the same list of models", async () => {
+  const res = await fetch(`${base}/models`);
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { data: Array<{ id: string; object: string }> };
+  expect(body.data).toBeInstanceOf(Array);
+  expect(body.data.some(m => m.id === "gemini-3.5-flash")).toBe(true);
+});

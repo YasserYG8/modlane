@@ -24,7 +24,28 @@ export function pickTier(_req: ChatRequest): TierName {
   return "balanced";
 }
 
+function translateModel(config: Config, providerName: string, model: string): string {
+  const provider = config.providers[providerName];
+  if (provider && provider.models && model in provider.models) {
+    return provider.models[model]!;
+  }
+  // Fallback: Try mapping globally across any provider's model map
+  for (const prov of Object.values(config.providers)) {
+    if (prov.models && model in prov.models) {
+      return prov.models[model]!;
+    }
+  }
+  return model;
+}
+
 function resolveProviderForModel(config: Config, model: string): string {
+  // If a provider explicitly maps this model name, route to that provider
+  for (const [name, prov] of Object.entries(config.providers)) {
+    if (prov.models && model in prov.models) {
+      return name;
+    }
+  }
+
   const isAnthropic = model.startsWith("claude");
   for (const [name, prov] of Object.entries(config.providers)) {
     if (isAnthropic && prov.kind === "anthropic") {
@@ -44,6 +65,7 @@ export async function route(config: Config, req: ChatRequest, env = process.env)
   if (!isVirtual) {
     // Direct Concrete Model Routing (bypassing virtual tiers)
     const provider = resolveProviderForModel(config, req.model);
+    req.model = translateModel(config, provider, req.model);
     const adapter = makeAdapter(config, provider, env);
     const result = await adapter.send(req);
     return {
@@ -57,22 +79,27 @@ export async function route(config: Config, req: ChatRequest, env = process.env)
 
   const tier = pickTier(req);
   const primaryTier = config.tiers[tier];
+  const primaryModel = translateModel(config, primaryTier.provider, primaryTier.model);
   const primary: Attempt = {
     provider: primaryTier.provider,
     adapter: makeAdapter(config, primaryTier.provider, env),
-    req: { ...req, model: primaryTier.model },
+    req: { ...req, model: primaryModel },
   };
 
   const fb = config.fallback[tier];
   const alt: Attempt | null = fb
-    ? { provider: fb.provider, adapter: makeAdapter(config, fb.provider, env), req: { ...req, model: fb.model } }
+    ? {
+        provider: fb.provider,
+        adapter: makeAdapter(config, fb.provider, env),
+        req: { ...req, model: translateModel(config, fb.provider, fb.model) },
+      }
     : null;
 
   const out = await sendWithFallback(primary, alt);
   return {
     tier,
     provider: out.provider,
-    model: out.usedFallback && fb ? fb.model : primaryTier.model,
+    model: out.usedFallback && fb ? translateModel(config, fb.provider, fb.model) : primaryModel,
     usedFallback: out.usedFallback,
     result: out.result,
   };
@@ -91,6 +118,7 @@ export function routeStream(config: Config, req: ChatRequest, env = process.env)
 
   if (!isVirtual) {
     const provider = resolveProviderForModel(config, req.model);
+    req.model = translateModel(config, provider, req.model);
     const adapter = makeAdapter(config, provider, env);
     return {
       tier: "balanced",
@@ -102,6 +130,12 @@ export function routeStream(config: Config, req: ChatRequest, env = process.env)
 
   const tier = pickTier(req);
   const t = config.tiers[tier];
+  const mappedModel = translateModel(config, t.provider, t.model);
   const adapter = makeAdapter(config, t.provider, env);
-  return { tier, provider: t.provider, model: t.model, stream: adapter.stream({ ...req, model: t.model }) };
+  return {
+    tier,
+    provider: t.provider,
+    model: mappedModel,
+    stream: adapter.stream({ ...req, model: mappedModel }),
+  };
 }

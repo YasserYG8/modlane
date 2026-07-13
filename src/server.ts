@@ -36,9 +36,102 @@ export function startGateway(config: Config, opts: ServerOptions): Promise<Serve
   });
 }
 
+async function fetchModelsFromProviders(config: Config, reqHeaders: Record<string, string>, env = process.env): Promise<Array<{ id: string; object: string }>> {
+  const allModels: Array<{ id: string; object: string }> = [];
+
+  for (const [name, provider] of Object.entries(config.providers || {})) {
+    let timeoutId: NodeJS.Timeout | undefined;
+    try {
+      let url = provider.baseUrl;
+      // Normalize url to point to models endpoint
+      url = url.replace(/\/chat\/completions\/?$/, "/models");
+      url = url.replace(/\/messages\/?$/, "/models");
+      if (!url.endsWith("/models")) {
+        url = url.endsWith("/") ? `${url}models` : `${url}/models`;
+      }
+      console.log(`[Models Sync] Fetching models from provider "${name}" at: ${url}`);
+
+      const headers: Record<string, string> = { "content-type": "application/json" };
+
+      // Forward client's session headers
+      if (reqHeaders["authorization"]) {
+        headers["authorization"] = reqHeaders["authorization"];
+      }
+      if (reqHeaders["x-api-key"]) {
+        headers["x-api-key"] = reqHeaders["x-api-key"];
+      }
+
+      // Fallback to local env key if no client header is provided
+      if (!headers["authorization"] && !headers["x-api-key"] && provider.apiKeyEnv) {
+        const key = env[provider.apiKeyEnv];
+        if (key) {
+          if (provider.kind === "anthropic") {
+            headers["x-api-key"] = key;
+            headers["anthropic-version"] = "2023-06-01";
+          } else {
+            headers["authorization"] = `Bearer ${key}`;
+          }
+        }
+      }
+
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), 2000);
+
+      const res = await fetch(url, { headers, signal: controller.signal });
+      if (res.ok) {
+        const body = (await res.json()) as any;
+        if (body && Array.isArray(body.data)) {
+          for (const m of body.data) {
+            if (m && typeof m.id === "string") {
+              allModels.push({ id: m.id, object: "model" });
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore individual provider failures
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
+  // Fallback to a basic list if all providers fail to respond
+  if (allModels.length === 0) {
+    return [
+      { id: "gemini-3.5-flash", object: "model" },
+      { id: "gemini-3.1-pro-preview", object: "model" },
+      { id: "claude-3-5-sonnet-latest", object: "model" },
+      { id: "gpt-5.5", object: "model" },
+      { id: "gpt-5.4-mini", object: "model" }
+    ];
+  }
+
+  return allModels;
+}
+
 async function handle(config: Config, req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method === "GET" && req.url === "/health") {
     send(res, 200, { status: "ok" });
+    return;
+  }
+  if (req.method === "GET" && (req.url === "/v1/models" || req.url === "/models")) {
+    console.log(`[Request] GET ${req.url}`);
+    const authHeaders: Record<string, string> = {};
+    if (req.headers["authorization"]) {
+      authHeaders["authorization"] = String(req.headers["authorization"]);
+    }
+    if (req.headers["x-api-key"]) {
+      authHeaders["x-api-key"] = String(req.headers["x-api-key"]);
+    }
+
+    try {
+      const models = await fetchModelsFromProviders(config, authHeaders);
+      send(res, 200, { data: models });
+    } catch (err) {
+      send(res, 502, { error: { message: "Failed to fetch models from provider" } });
+    }
     return;
   }
   if (req.method === "POST" && req.url === "/v1/chat/completions") {
@@ -75,6 +168,7 @@ async function handleChat(config: Config, req: IncomingMessage, res: ServerRespo
   chatReq.headers = authHeaders;
 
   const requestedModel = typeof body.model === "string" ? body.model : "";
+  console.log(`[Request] ${req.method} ${req.url} - Model: "${requestedModel}"`);
 
   if (chatReq.stream) {
     await handleStream(config, res, chatReq, dialect, requestedModel);
@@ -83,6 +177,7 @@ async function handleChat(config: Config, req: IncomingMessage, res: ServerRespo
 
   try {
     const routed = await route(config, chatReq);
+    console.log(`[Route] -> Provider: "${routed.provider}" - Model: "${routed.model}" (Tier: ${routed.tier}, usedFallback: ${routed.usedFallback})`);
     const payload =
       dialect === "openai"
         ? renderOpenAIResponse(routed.result, requestedModel)
@@ -100,7 +195,9 @@ async function handleStream(
   dialect: Dialect,
   model: string,
 ): Promise<void> {
-  const iterator = routeStream(config, chatReq).stream[Symbol.asyncIterator]();
+  const routed = routeStream(config, chatReq);
+  console.log(`[Route Stream] -> Provider: "${routed.provider}" - Model: "${routed.model}" (Tier: ${routed.tier})`);
+  const iterator = routed.stream[Symbol.asyncIterator]();
 
   // Prime the first chunk so a pre-stream provider error becomes a clean HTTP error
   // (nothing written yet). After the head is sent, mid-stream errors just end the stream.

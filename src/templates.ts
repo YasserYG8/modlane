@@ -1,48 +1,62 @@
-export interface AgentTemplate {
-  yaml: string;
-  env: string;
+export interface ClassifiedTiers {
+  fast: string;
+  balanced: string;
+  powerful: string;
 }
 
-export const TEMPLATES: Record<string, AgentTemplate> = {
-  "--claude": {
-    yaml: `# Modlane configuration pre-optimized for Claude Code (2026 Lineup)
+export function getClaudeTemplate(models: ClassifiedTiers): string {
+  return `# Modlane configuration pre-optimized for Claude Code
 server:
   host: 127.0.0.1
   port: 4700
 
 tiers:
-  fast:     { provider: anthropic, model: claude-haiku-4.5 } # Easy tasks
-  balanced: { provider: anthropic, model: claude-sonnet-5 }    # Balanced tasks
-  powerful: { provider: anthropic, model: claude-fable-5 }     # Complex tasks
+  fast:     { provider: anthropic, model: "${models.fast}" }
+  balanced: { provider: anthropic, model: "${models.balanced}" }
+  powerful: { provider: anthropic, model: "${models.powerful}" }
 
 providers:
   anthropic:
     kind: anthropic
     base_url: https://api.anthropic.com
     api_key_env: null # Uses Claude Code's native browser authentication (no key needed in .env)
-`,
-    env: `# No keys needed for Claude Code session passthrough
-`
-  },
-  "--agy": {
-    yaml: `# Modlane configuration pre-optimized for Antigravity (agy)
+`;
+}
+
+export function getAgyTemplate(models: ClassifiedTiers): string {
+  return `# Modlane configuration pre-optimized for Antigravity (agy)
 server:
   host: 127.0.0.1
   port: 4700
 
 tiers:
-  fast:     { provider: openrouter, model: google/gemini-2.5-flash }
-  balanced: { provider: openrouter, model: google/gemini-2.5-pro }
-  powerful: { provider: openrouter, model: anthropic/claude-sonnet-5 }
+  fast:     { provider: google, model: "${models.fast}" }
+  balanced: { provider: google, model: "${models.balanced}" }
+  powerful: { provider: google, model: "${models.powerful}" } # Served natively via Google Vertex/AI Studio
 
 providers:
-  openrouter:
+  google:
     kind: openai-compatible
-    base_url: https://openrouter.ai/api/v1
-    api_key_env: OPENROUTER_API_KEY
-`,
-    env: `# Add your OpenRouter API key here to power Antigravity (agy)
-OPENROUTER_API_KEY=""
-`
-  }
-};
+    base_url: https://generativelabs.googleapis.com/v1beta/openai
+    api_key_env: null # Uses Antigravity's native Google session authentication (no key needed in .env)
+`;
+}
+
+export function getCodexTemplate(models: ClassifiedTiers): string {
+  return `# Modlane configuration pre-optimized for Codex
+server:
+  host: 127.0.0.1
+  port: 4700
+
+tiers:
+  fast:     { provider: openai, model: "${models.fast}" }
+  balanced: { provider: openai, model: "${models.balanced}" }
+  powerful: { provider: openai, model: "${models.powerful}" }
+
+providers:
+  openai:
+    kind: openai
+    base_url: https://api.openai.com/v1
+    api_key_env: null # Uses Codex's native session authentication (no key needed in .env)
+`;
+}

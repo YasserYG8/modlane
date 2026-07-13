@@ -85,3 +85,45 @@ test("Header Passthrough forwards client authorization and x-api-key headers", a
   expect(res.status).toBe(200);
   expect(interceptedHeaders.authorization).toBe("Bearer my-custom-session-token-123");
 });
+
+test("Config-driven model translation maps model names dynamically", async () => {
+  let interceptedModel = "";
+  const providerUrl = await mockProviderWithHeaders((headers, body) => {
+    interceptedModel = body.model;
+  });
+
+  const tier: TierConfig = { provider: "mock", model: "friendly-model-name" };
+  const config: Config = {
+    server: { host: "127.0.0.1", port: 0 },
+    router: { strategy: "rules" },
+    tiers: { fast: tier, balanced: tier, powerful: tier },
+    providers: {
+      mock: {
+        kind: "openai-compatible",
+        baseUrl: `${providerUrl}/v1`,
+        apiKeyEnv: null,
+        models: {
+          "friendly-model-name": "concrete-model-id"
+        }
+      }
+    },
+    fallback: {},
+    anthropicDefaults: { maxTokens: 4096 },
+    telemetry: { store: ":memory:", captureContent: false },
+    prices: {},
+  };
+
+  const server = await startGateway(config, { host: "127.0.0.1", port: 0 });
+  servers.push(server);
+  const { port } = server.address() as AddressInfo;
+  const base = `http://127.0.0.1:${port}`;
+
+  const res = await fetch(`${base}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ model: "friendly-model-name", messages: [{ role: "user", content: "hi" }] }),
+  });
+
+  expect(res.status).toBe(200);
+  expect(interceptedModel).toBe("concrete-model-id");
+});
