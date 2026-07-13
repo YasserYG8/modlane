@@ -64,6 +64,16 @@ async function handleChat(config: Config, req: IncomingMessage, res: ServerRespo
   const chatReq = dialect === "openai" ? parseOpenAIRequest(body) : parseAnthropicRequest(body);
   chatReq.dialect = dialect;
   chatReq.rawBody = body;
+
+  const authHeaders: Record<string, string> = {};
+  if (req.headers["authorization"]) {
+    authHeaders["authorization"] = String(req.headers["authorization"]);
+  }
+  if (req.headers["x-api-key"]) {
+    authHeaders["x-api-key"] = String(req.headers["x-api-key"]);
+  }
+  chatReq.headers = authHeaders;
+
   const requestedModel = typeof body.model === "string" ? body.model : "";
 
   if (chatReq.stream) {

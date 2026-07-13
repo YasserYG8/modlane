@@ -35,7 +35,11 @@ export class OpenAICompatAdapter implements ProviderAdapter {
     if (req.tools != null) body.tools = req.tools;
     if (stream) body.stream_options = { include_usage: true };
     const headers: Record<string, string> = {};
-    if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`;
+    if (req.headers?.["authorization"]) {
+      headers.authorization = req.headers["authorization"];
+    } else if (this.apiKey) {
+      headers.authorization = `Bearer ${this.apiKey}`;
+    }
     return { url: `${trimSlash(this.baseUrl)}/chat/completions`, headers, body };
   }
 
