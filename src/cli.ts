@@ -19,6 +19,7 @@ loadDotEnv();
 const VERSION = "0.0.1";
 
 let originalBaseUrl: string | undefined = undefined;
+let originalBaseUrlSnake: string | undefined = undefined;
 let settingsUpdated = false;
 
 function getSettingsPath(): string {
@@ -32,7 +33,9 @@ function injectBaseUrl(): void {
   try {
     const content = readFileSync(path, "utf8");
     const settings = JSON.parse(content);
-    originalBaseUrl = settings.base_url;
+    originalBaseUrl = settings.baseUrl;
+    originalBaseUrlSnake = settings.base_url;
+    settings.baseUrl = "http://127.0.0.1:4700/v1";
     settings.base_url = "http://127.0.0.1:4700/v1";
     writeFileSync(path, JSON.stringify(settings, null, 2));
     settingsUpdated = true;
@@ -51,11 +54,19 @@ function restoreBaseUrl(): void {
   try {
     const content = readFileSync(path, "utf8");
     const settings = JSON.parse(content);
+    
     if (originalBaseUrl === undefined) {
+      delete settings.baseUrl;
+    } else {
+      settings.baseUrl = originalBaseUrl;
+    }
+    
+    if (originalBaseUrlSnake === undefined) {
       delete settings.base_url;
     } else {
-      settings.base_url = originalBaseUrl;
+      settings.base_url = originalBaseUrlSnake;
     }
+    
     writeFileSync(path, JSON.stringify(settings, null, 2));
     console.log(`[Lifecycle] Automatically restored agy base_url to original state.`);
     settingsUpdated = false;

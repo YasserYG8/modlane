@@ -120,6 +120,7 @@ process.on("uncaughtException", (error) => {
 
 async function handle(config: Config, req: IncomingMessage, res: ServerResponse): Promise<void> {
   try {
+    console.log(`[Incoming] ${req.method} ${req.url} (User-Agent: ${req.headers["user-agent"] || "none"})`);
     if (req.method === "GET" && req.url === "/health") {
       send(res, 200, { status: "ok" });
       return;

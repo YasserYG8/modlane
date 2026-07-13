@@ -18,6 +18,7 @@ async function run() {
   gateway.stdout.on("data", (data) => {
     const str = data.toString();
     serverOutput += str;
+    process.stdout.write("[Server] " + str);
     if (str.includes("listening on")) {
       serverReady = true;
     }
