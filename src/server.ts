@@ -111,45 +111,61 @@ async function fetchModelsFromProviders(config: Config, reqHeaders: Record<strin
   return allModels;
 }
 
-async function handle(config: Config, req: IncomingMessage, res: ServerResponse): Promise<void> {
-  if (req.method === "GET" && req.url === "/health") {
-    send(res, 200, { status: "ok" });
-    return;
-  }
-  if (req.method === "GET" && (req.url === "/v1/models" || req.url === "/models")) {
-    console.log(`[Request] GET ${req.url}`);
-    const authHeaders: Record<string, string> = {};
-    if (req.headers["authorization"]) {
-      authHeaders["authorization"] = String(req.headers["authorization"]);
-    }
-    if (req.headers["x-api-key"]) {
-      authHeaders["x-api-key"] = String(req.headers["x-api-key"]);
-    }
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[Global Error] Unhandled Rejection at:", promise, "reason:", reason);
+});
+process.on("uncaughtException", (error) => {
+  console.error("[Global Error] Uncaught Exception:", error);
+});
 
-    try {
-      const models = await fetchModelsFromProviders(config, authHeaders);
-      send(res, 200, { data: models });
-    } catch (err) {
-      send(res, 502, { error: { message: "Failed to fetch models from provider" } });
+async function handle(config: Config, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    if (req.method === "GET" && req.url === "/health") {
+      send(res, 200, { status: "ok" });
+      return;
     }
-    return;
+    if (req.method === "GET" && (req.url === "/v1/models" || req.url === "/models")) {
+      console.log(`[Request] GET ${req.url}`);
+      const authHeaders: Record<string, string> = {};
+      if (req.headers["authorization"]) {
+        authHeaders["authorization"] = String(req.headers["authorization"]);
+      }
+      if (req.headers["x-api-key"]) {
+        authHeaders["x-api-key"] = String(req.headers["x-api-key"]);
+      }
+
+      try {
+        const models = await fetchModelsFromProviders(config, authHeaders);
+        send(res, 200, { data: models });
+      } catch (err) {
+        console.error(`[Server Error] Failed to fetch models:`, err);
+        send(res, 502, { error: { message: "Failed to fetch models from provider" } });
+      }
+      return;
+    }
+    if (req.method === "POST" && (req.url === "/v1/chat/completions" || req.url === "/chat/completions")) {
+      await handleChat(config, req, res, "openai");
+      return;
+    }
+    if (req.method === "POST" && req.url === "/v1/messages") {
+      await handleChat(config, req, res, "anthropic");
+      return;
+    }
+    send(res, 404, { error: { message: "not found", type: "not_found" } });
+  } catch (err) {
+    console.error(`[Server Error] Exception during request handling for ${req.method} ${req.url}:`, err);
+    if (!res.headersSent) {
+      send(res, 500, { error: { message: "Internal server error", type: "internal_error" } });
+    }
   }
-  if (req.method === "POST" && (req.url === "/v1/chat/completions" || req.url === "/chat/completions")) {
-    await handleChat(config, req, res, "openai");
-    return;
-  }
-  if (req.method === "POST" && req.url === "/v1/messages") {
-    await handleChat(config, req, res, "anthropic");
-    return;
-  }
-  send(res, 404, { error: { message: "not found", type: "not_found" } });
 }
 
 async function handleChat(config: Config, req: IncomingMessage, res: ServerResponse, dialect: Dialect): Promise<void> {
   let body: Record<string, unknown>;
   try {
     body = (await readJson(req)) as Record<string, unknown>;
-  } catch {
+  } catch (err) {
+    console.error(`[Server Error] Failed to parse JSON body:`, err);
     sendError(res, dialect, 400, "invalid JSON body");
     return;
   }
@@ -168,7 +184,16 @@ async function handleChat(config: Config, req: IncomingMessage, res: ServerRespo
   chatReq.headers = authHeaders;
 
   const requestedModel = typeof body.model === "string" ? body.model : "";
-  console.log(`[Request] ${req.method} ${req.url} - Model: "${requestedModel}"`);
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const lastMessage = messages[messages.length - 1];
+  const lastPrompt = lastMessage && typeof lastMessage.content === "string" ? lastMessage.content : "";
+
+  console.log(`[Request] ${req.method} ${req.url}`);
+  console.log(`  - Requested Model: "${requestedModel}"`);
+  if (lastPrompt) {
+    const trimmed = lastPrompt.length > 120 ? lastPrompt.substring(0, 120) + "..." : lastPrompt;
+    console.log(`  - Prompt Preview: "${trimmed.replace(/\s+/g, " ")}"`);
+  }
 
   if (chatReq.stream) {
     await handleStream(config, res, chatReq, dialect, requestedModel);
