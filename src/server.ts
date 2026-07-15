@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { connect as netConnect, type Socket } from "node:net";
+import { request as httpsRequest } from "node:https";
 import type { Config } from "./config.js";
 import { ProviderError, type StreamChunk } from "./providers/index.js";
 import { parseAnthropicRequest, renderAnthropicError, renderAnthropicResponse } from "./protocols/anthropic.js";
@@ -18,14 +20,49 @@ const JSON_HEADERS = { "content-type": "application/json" } as const;
 /**
  * Inbound gateway. Accepts OpenAI /v1/chat/completions and Anthropic /v1/messages,
  * parses to a neutral ChatRequest, routes, and renders back in the inbound dialect.
- * The routing brain (classification, signals) plugs into `route` (P4–P6).
+ * Also acts as an HTTPS CONNECT proxy so closed CLI binaries (like agy) can tunnel
+ * through Modlane when HTTPS_PROXY is set.
  */
 export function createGateway(config: Config): Server {
-  return createServer((req, res) => {
+  const server = createServer((req, res) => {
     handle(config, req, res).catch(() => {
       if (!res.headersSent) send(res, 500, { error: { message: "internal error" } });
     });
   });
+
+  // HTTPS CONNECT proxy: handles tunneled TLS connections from CLI tools
+  // that respect HTTPS_PROXY (e.g. agy, curl, Go programs, etc.)
+  server.on("connect", (req: IncomingMessage, clientSocket: Socket, head: Buffer) => {
+    const target = req.url || "";
+    const [hostname, portStr] = target.split(":");
+    const port = parseInt(portStr || "443", 10);
+
+    console.log(`[CONNECT] Tunnel requested -> ${hostname}:${port}`);
+
+    const targetSocket = netConnect(port, hostname, () => {
+      clientSocket.write("HTTP/1.1 200 Connection Established\r\nProxy-Agent: modlane\r\n\r\n");
+      if (head.length > 0) targetSocket.write(head);
+      targetSocket.pipe(clientSocket);
+      clientSocket.pipe(targetSocket);
+      console.log(`[CONNECT] Tunnel established -> ${hostname}:${port}`);
+    });
+
+    targetSocket.on("error", (err) => {
+      console.error(`[CONNECT Error] Failed to connect to ${hostname}:${port}:`, err.message);
+      clientSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+      clientSocket.end();
+    });
+
+    clientSocket.on("error", () => {
+      targetSocket.destroy();
+    });
+
+    targetSocket.on("close", () => {
+      console.log(`[CONNECT] Tunnel closed -> ${hostname}:${port}`);
+    });
+  });
+
+  return server;
 }
 
 export function startGateway(config: Config, opts: ServerOptions): Promise<Server> {
@@ -150,6 +187,10 @@ async function handle(config: Config, req: IncomingMessage, res: ServerResponse)
     }
     if (req.method === "POST" && req.url === "/v1/messages") {
       await handleChat(config, req, res, "anthropic");
+      return;
+    }
+    if (req.url?.includes("/v1internal")) {
+      await handleV1Internal(config, req, res);
       return;
     }
     send(res, 404, { error: { message: "not found", type: "not_found" } });
@@ -279,4 +320,98 @@ function send(res: ServerResponse, status: number, obj: unknown): void {
 
 function sendError(res: ServerResponse, dialect: Dialect, status: number, message: string): void {
   send(res, status, dialect === "openai" ? renderOpenAIError(message) : renderAnthropicError(message));
+}
+
+async function handleV1Internal(config: Config, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const targetHost = "daily-cloudcode-pa.googleapis.com";
+  const targetUrl = `https://${targetHost}${req.url}`;
+
+  // Read body
+  let rawBody = "";
+  try {
+    rawBody = await new Promise<string>((resolve, reject) => {
+      let data = "";
+      req.on("data", (chunk) => (data += chunk));
+      req.on("end", () => resolve(data));
+      req.on("error", reject);
+    });
+  } catch (err) {
+    console.error(`[Proxy Error] Failed to read request body:`, err);
+  }
+
+  // Attempt to parse and log
+  try {
+    if (rawBody && (req.headers["content-type"] || "").includes("json")) {
+      const parsed = JSON.parse(rawBody);
+      console.log(`[Request] ${req.method} ${req.url}`);
+
+      const reqObj = parsed.request || parsed;
+
+      // Log model if found
+      const model = reqObj.model || (reqObj.modelConfig && reqObj.modelConfig.model) || parsed.model || "";
+      if (model) {
+        console.log(`  - Requested Model: "${model}"`);
+      }
+
+      // Log prompt preview if found
+      let prompt = "";
+      if (reqObj.prompt) {
+        prompt = reqObj.prompt;
+      } else if (reqObj.contents) {
+        const parts = reqObj.contents?.[0]?.parts;
+        if (Array.isArray(parts)) {
+          prompt = parts.map((p: any) => p.text || "").join(" ");
+        }
+      } else if (reqObj.messages) {
+        const lastMsg = reqObj.messages[reqObj.messages.length - 1];
+        if (lastMsg && typeof lastMsg.content === "string") {
+          prompt = lastMsg.content;
+        }
+      }
+
+      if (prompt) {
+        // Clean up the prompt to extract only the user request content if template tags exist
+        let cleanPrompt = prompt;
+        const match = prompt.match(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/);
+        if (match && match[1]) {
+          cleanPrompt = match[1].trim();
+        }
+        const trimmed = cleanPrompt.length > 120 ? cleanPrompt.substring(0, 120) + "..." : cleanPrompt;
+        console.log(`  - Prompt Preview: "${trimmed.replace(/\s+/g, " ")}"`);
+      }
+    }
+  } catch (e) {
+    // Ignore parsing errors for logging
+  }
+
+  // Forward the request
+  const headers = { ...req.headers };
+  headers["host"] = targetHost;
+  delete headers["proxy-connection"];
+  delete headers["connection"];
+
+  const options = {
+    hostname: targetHost,
+    port: 443,
+    path: req.url,
+    method: req.method,
+    headers: headers,
+  };
+
+  const proxyReq = httpsRequest(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
+
+  proxyReq.on("error", (err) => {
+    console.error(`[Proxy Error] Request to ${targetUrl} failed:`, err);
+    if (!res.headersSent) {
+      send(res, 502, { error: { message: `Proxy gateway error: ${err.message}` } });
+    }
+  });
+
+  if (rawBody) {
+    proxyReq.write(rawBody);
+  }
+  proxyReq.end();
 }
