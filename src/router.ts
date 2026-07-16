@@ -24,7 +24,7 @@ export function pickTier(_req: ChatRequest): TierName {
   return "balanced";
 }
 
-function translateModel(config: Config, providerName: string, model: string): string {
+export function translateModel(config: Config, providerName: string, model: string): string {
   const provider = config.providers[providerName];
   if (provider && provider.models && model in provider.models) {
     return provider.models[model]!;
@@ -38,7 +38,7 @@ function translateModel(config: Config, providerName: string, model: string): st
   return model;
 }
 
-function resolveProviderForModel(config: Config, model: string): string {
+export function resolveProviderForModel(config: Config, model: string): string {
   // If a provider explicitly maps this model name, route to that provider
   for (const [name, prov] of Object.entries(config.providers)) {
     if (prov.models && model in prov.models) {
@@ -47,6 +47,23 @@ function resolveProviderForModel(config: Config, model: string): string {
   }
 
   const isAnthropic = model.startsWith("claude");
+  const isOpenAI = model.startsWith("gpt-");
+  const isGoogle = model.startsWith("gemini-");
+
+  // Try to match by explicit prefix preference
+  for (const [name, prov] of Object.entries(config.providers)) {
+    if (isAnthropic && prov.kind === "anthropic") {
+      return name;
+    }
+    if (isOpenAI && name === "openai") {
+      return name;
+    }
+    if (isGoogle && name === "google") {
+      return name;
+    }
+  }
+
+  // Fallback to first matching provider kind
   for (const [name, prov] of Object.entries(config.providers)) {
     if (isAnthropic && prov.kind === "anthropic") {
       return name;
