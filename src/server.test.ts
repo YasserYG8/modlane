@@ -122,8 +122,59 @@ test("CONNECT tunnel returns 403 Forbidden for disallowed hosts", async () => {
     });
   });
 
-  expect(response).toContain("HTTP/1.1 403 Forbidden");
+  expect(response).toContain("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
   clientSocket.end();
+});
+
+test("CONNECT tunnel returns 400 Bad Request for invalid port (e.g., abc)", async () => {
+  const { port } = server.address() as AddressInfo;
+  const { connect: rawConnect } = await vi.importActual<typeof import("node:net")>("node:net");
+  const clientSocket = rawConnect(port, "127.0.0.1");
+
+  await new Promise<void>((resolve, reject) => {
+    clientSocket.once("connect", resolve);
+    clientSocket.once("error", reject);
+  });
+
+  clientSocket.write("CONNECT daily-cloudcode-pa.googleapis.com:abc HTTP/1.1\r\nHost: daily-cloudcode-pa.googleapis.com\r\n\r\n");
+
+  const response = await new Promise<string>((resolve) => {
+    clientSocket.once("data", (data) => {
+      resolve(data.toString());
+    });
+  });
+
+  expect(response).toContain("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+  clientSocket.end();
+});
+
+test("CONNECT tunnel returns 502 Bad Gateway if connection to upstream fails", async () => {
+  const originalPort = mockUpstreamPort;
+  // Use a port that is highly unlikely to be listening to trigger connection failure
+  mockUpstreamPort = 1;
+
+  const { port } = server.address() as AddressInfo;
+  const { connect: rawConnect } = await vi.importActual<typeof import("node:net")>("node:net");
+  const clientSocket = rawConnect(port, "127.0.0.1");
+
+  await new Promise<void>((resolve, reject) => {
+    clientSocket.once("connect", resolve);
+    clientSocket.once("error", reject);
+  });
+
+  clientSocket.write("CONNECT daily-cloudcode-pa.googleapis.com:443 HTTP/1.1\r\nHost: daily-cloudcode-pa.googleapis.com\r\n\r\n");
+
+  const response = await new Promise<string>((resolve) => {
+    clientSocket.once("data", (data) => {
+      resolve(data.toString());
+    });
+  });
+
+  expect(response).toContain("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
+  clientSocket.end();
+
+  // Restore the original mock upstream port
+  mockUpstreamPort = originalPort;
 });
 
 test("Option A: correlationId is assigned per TCP connection", async () => {

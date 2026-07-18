@@ -36,21 +36,52 @@ export function createGateway(config: Config): Server {
     const [host, portStr] = url.split(":");
     const port = parseInt(portStr || "443", 10);
 
-    if (!host || !CONNECT_ALLOWED_HOSTS.has(host)) {
-      clientSocket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+    if (isNaN(port) || port <= 0 || port > 65535) {
+      clientSocket.write("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
       clientSocket.end();
       return;
     }
 
-    const serverSocket = netConnect(port, host, () => {
+    if (!host || !CONNECT_ALLOWED_HOSTS.has(host)) {
+      clientSocket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+      clientSocket.end();
+      return;
+    }
+
+    let established = false;
+    let serverSocket: any;
+
+    const cleanup = () => {
+      clientSocket.destroy();
+      if (serverSocket) {
+        serverSocket.destroy();
+      }
+    };
+
+    clientSocket.on("close", cleanup);
+
+    serverSocket = netConnect(port, host, () => {
+      established = true;
       clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       serverSocket.write(head);
       serverSocket.pipe(clientSocket);
       clientSocket.pipe(serverSocket);
     });
 
-    serverSocket.on("error", () => clientSocket.end());
-    clientSocket.on("error", () => serverSocket.end());
+    serverSocket.on("close", cleanup);
+
+    serverSocket.on("error", () => {
+      if (!established && !clientSocket.writableEnded) {
+        clientSocket.write("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n");
+      }
+      clientSocket.end();
+    });
+
+    clientSocket.on("error", () => {
+      if (serverSocket) {
+        serverSocket.destroy();
+      }
+    });
   });
 
   return server;
