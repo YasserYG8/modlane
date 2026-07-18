@@ -21,6 +21,7 @@ export interface ChatRequest {
   dialect?: "openai" | "anthropic";
   rawBody?: unknown;
   headers?: Record<string, string>;
+  correlationId?: string;
 }
 
 

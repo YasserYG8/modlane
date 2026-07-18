@@ -1,4 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { connect as netConnect } from "node:net";
+import { randomUUID } from "node:crypto";
 import type { Config } from "./config.js";
 import { ProviderError, type StreamChunk } from "./providers/index.js";
 import { parseAnthropicRequest, renderAnthropicError, renderAnthropicResponse } from "./protocols/anthropic.js";
@@ -14,6 +16,7 @@ export interface ServerOptions {
 }
 
 const JSON_HEADERS = { "content-type": "application/json" } as const;
+const CONNECT_ALLOWED_HOSTS = new Set(["daily-cloudcode-pa.googleapis.com"]);
 
 /**
  * Inbound gateway. Accepts OpenAI /v1/chat/completions and Anthropic /v1/messages,
@@ -21,11 +24,36 @@ const JSON_HEADERS = { "content-type": "application/json" } as const;
  * The routing brain (classification, signals) plugs into `route` (P4–P6).
  */
 export function createGateway(config: Config): Server {
-  return createServer((req, res) => {
+  const server = createServer((req, res) => {
     handle(config, req, res).catch(() => {
       if (!res.headersSent) send(res, 500, { error: { message: "internal error" } });
     });
   });
+
+  // Handle HTTP CONNECT tunnel proxying
+  server.on("connect", (req, clientSocket, head) => {
+    const url = req.url || "";
+    const [host, portStr] = url.split(":");
+    const port = parseInt(portStr || "443", 10);
+
+    if (!host || !CONNECT_ALLOWED_HOSTS.has(host)) {
+      clientSocket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+      clientSocket.end();
+      return;
+    }
+
+    const serverSocket = netConnect(port, host, () => {
+      clientSocket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+      serverSocket.write(head);
+      serverSocket.pipe(clientSocket);
+      clientSocket.pipe(serverSocket);
+    });
+
+    serverSocket.on("error", () => clientSocket.end());
+    clientSocket.on("error", () => serverSocket.end());
+  });
+
+  return server;
 }
 
 export function startGateway(config: Config, opts: ServerOptions): Promise<Server> {
@@ -37,6 +65,12 @@ export function startGateway(config: Config, opts: ServerOptions): Promise<Serve
 }
 
 async function handle(config: Config, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  // Option A: Track correlation ID per TCP socket connection
+  const socket = req.socket as any;
+  if (!socket.correlationId) {
+    socket.correlationId = `conn_${randomUUID().replace(/-/g, "")}`;
+  }
+
   if (req.method === "GET" && req.url === "/health") {
     send(res, 200, { status: "ok" });
     return;
@@ -64,6 +98,7 @@ async function handleChat(config: Config, req: IncomingMessage, res: ServerRespo
   const chatReq = dialect === "openai" ? parseOpenAIRequest(body) : parseAnthropicRequest(body);
   chatReq.dialect = dialect;
   chatReq.rawBody = body;
+  chatReq.correlationId = (req.socket as any).correlationId;
 
   const authHeaders: Record<string, string> = {};
   if (req.headers["authorization"]) {
