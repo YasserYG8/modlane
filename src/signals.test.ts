@@ -221,3 +221,162 @@ test("does not flag benign words containing 'fail' as failures", () => {
   expect(signals.hasTestFailures).toBe(false);
   expect(signals.consecutiveFailures).toBe(0);
 });
+
+test("extracts OpenAI Responses API (input / function_call) signals", () => {
+  const rawBody = {
+    input: [
+      {
+        role: "developer",
+        type: "message",
+        content: [
+          { type: "input_text", text: "sys content" }
+        ]
+      },
+      {
+        role: "user",
+        type: "message",
+        content: [
+          { type: "input_text", text: "user prompt" }
+        ]
+      },
+      {
+        type: "function_call",
+        id: "fc_1",
+        call_id: "call_abc123",
+        name: "edit_file",
+        arguments: JSON.stringify({ path: "src/server.ts" })
+      },
+      {
+        type: "function_call_output",
+        call_id: "call_abc123",
+        output: "FAIL: compiler error"
+      }
+    ]
+  };
+
+  const req: ChatRequest = {
+    model: "test-model",
+    messages: [], // empty messages in responses proxy mode
+    dialect: "openai",
+    rawBody
+  };
+
+  const signals = extractSignals(req);
+  expect(signals.totalMessages).toBe(4);
+  expect(signals.totalCharacters).toBe(22); // "sys content" (11) + "user prompt" (11)
+  expect(signals.toolCalls).toHaveLength(1);
+  expect(signals.toolCalls[0].name).toBe("edit_file");
+  expect(signals.toolResults).toHaveLength(1);
+  expect(signals.toolResults[0].isError).toBe(true);
+  expect(signals.filesTouched).toEqual(["src/server.ts"]);
+  expect(signals.consecutiveFailures).toBe(1);
+});
+
+test("successful execution clears an earlier test failure", () => {
+  const rawBody = {
+    messages: [
+      { role: "assistant", tool_calls: [{ type: "function", function: { name: "run_command", arguments: "{}" } }] },
+      { role: "tool", content: "FAIL: tests failed" },
+      { role: "assistant", tool_calls: [{ type: "function", function: { name: "run_command", arguments: "{}" } }] },
+      { role: "tool", content: "Tests passed" },
+    ],
+  };
+
+  const signals = extractSignals({
+    model: "test-model",
+    messages: [
+      { role: "assistant", content: "" },
+      { role: "tool", content: "FAIL: tests failed" },
+      { role: "assistant", content: "" },
+      { role: "tool", content: "Tests passed" },
+    ],
+    dialect: "openai",
+    rawBody,
+  });
+
+  expect(signals.hasTestFailures).toBe(false);
+  expect(signals.consecutiveFailures).toBe(0);
+});
+
+test("old repeated edits do not affect recent edit signals", () => {
+  const oldEdits = [
+    { role: "assistant", tool_calls: [{ type: "function", function: { name: "edit_file", arguments: JSON.stringify({ path: "old.ts" }) } }] },
+    { role: "assistant", tool_calls: [{ type: "function", function: { name: "edit_file", arguments: JSON.stringify({ path: "old.ts" }) } }] },
+  ];
+  const recentReads = Array.from({ length: 8 }, (_, i) => ({
+    role: "assistant",
+    tool_calls: [{ type: "function", function: { name: "read_file", arguments: JSON.stringify({ path: `recent-${i}.ts` }) } }],
+  }));
+
+  const signals = extractSignals({
+    model: "test-model",
+    messages: [],
+    dialect: "openai",
+    rawBody: { messages: [...oldEdits, ...recentReads] },
+  });
+
+  expect(signals.toolCalls).toHaveLength(10);
+  expect(signals.filesTouched).not.toContain("old.ts");
+  expect(signals.repeatedEdits).toBe(false);
+});
+
+test("read-only tool success does NOT clear an earlier test failure", () => {
+  const rawBody = {
+    messages: [
+      { role: "assistant", tool_calls: [{ id: "c1", type: "function", function: { name: "run_command", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "FAIL: tests failed" },
+      { role: "assistant", tool_calls: [{ id: "c2", type: "function", function: { name: "read_file", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c2", content: "content of file" },
+    ],
+  };
+
+  const signals = extractSignals({
+    model: "test-model",
+    messages: [],
+    dialect: "openai",
+    rawBody,
+  });
+
+  expect(signals.hasTestFailures).toBe(true);
+});
+
+test("clears heuristics on new user task boundary (last message is user)", () => {
+  const rawBody = {
+    messages: [
+      { role: "assistant", tool_calls: [{ id: "c1", type: "function", function: { name: "run_command", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "FAIL: tests failed" },
+      { role: "user", content: "Let's fix it by doing Y instead." },
+    ],
+  };
+
+  const signals = extractSignals({
+    model: "test-model",
+    messages: [],
+    dialect: "openai",
+    rawBody,
+  });
+
+  // Since the last message is role: "user" (new user prompt/boundary), heuristics should be cleared
+  expect(signals.hasTestFailures).toBe(false);
+  expect(signals.consecutiveFailures).toBe(0);
+});
+
+test("retains heuristics during active agent loop (last message is tool result)", () => {
+  const rawBody = {
+    messages: [
+      { role: "assistant", tool_calls: [{ id: "c1", type: "function", function: { name: "run_command", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "c1", content: "FAIL: tests failed" },
+    ],
+  };
+
+  const signals = extractSignals({
+    model: "test-model",
+    messages: [],
+    dialect: "openai",
+    rawBody,
+  });
+
+  // The last message is tool result (active loop), so heuristics should be retained
+  expect(signals.hasTestFailures).toBe(true);
+  expect(signals.consecutiveFailures).toBe(1);
+});

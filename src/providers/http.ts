@@ -1,5 +1,7 @@
 import { ProviderError, isRetryableStatus } from "./types.js";
 
+const UPSTREAM_TIMEOUT_MS = 120_000;
+
 export function trimSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
@@ -16,6 +18,7 @@ export async function postJson(
       method: "POST",
       headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
   } catch (err) {
     throw new ProviderError(`network error: ${(err as Error).message}`, 0, true);

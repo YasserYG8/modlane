@@ -29,12 +29,8 @@ export function translateModel(config: Config, providerName: string, model: stri
   if (provider && provider.models && model in provider.models) {
     return provider.models[model]!;
   }
-  // Fallback: Try mapping globally across any provider's model map
-  for (const prov of Object.values(config.providers)) {
-    if (prov.models && model in prov.models) {
-      return prov.models[model]!;
-    }
-  }
+  // Model aliases are provider-specific. Never send an alias resolved for a
+  // different provider to this adapter.
   return model;
 }
 

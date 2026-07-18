@@ -2,7 +2,30 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { writeFileSync } from "node:fs";
 import { connect as netConnect, type Socket } from "node:net";
 import { request as httpsRequest } from "node:https";
-import { execSync } from "node:child_process";
+import { execSync, execFile } from "node:child_process";
+
+function decompressZstd(buf: Buffer): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      "zstd",
+      ["-d"],
+      {
+        timeout: 5_000,
+        maxBuffer: MAX_DECOMPRESSED_BYTES,
+        encoding: "buffer",
+      },
+      (err, stdout) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(stdout);
+        }
+      }
+    );
+    child.stdin?.write(buf);
+    child.stdin?.end();
+  });
+}
 import type { Config } from "./config.js";
 import { ProviderError, type StreamChunk } from "./providers/index.js";
 import { parseAnthropicRequest, renderAnthropicError, renderAnthropicResponse } from "./protocols/anthropic.js";
@@ -18,6 +41,8 @@ export interface ServerOptions {
 }
 
 const JSON_HEADERS = { "content-type": "application/json" } as const;
+const MAX_REQUEST_BYTES = 20 * 1024 * 1024;
+const MAX_DECOMPRESSED_BYTES = 20 * 1024 * 1024;
 
 // Endpoints that carry actual user prompts — always log these in detail
 const PROMPT_ENDPOINTS = [
@@ -643,21 +668,80 @@ function errorStatus(err: unknown): number {
   return err instanceof ProviderError && err.status >= 400 && err.status < 600 ? err.status : 502;
 }
 
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super("request body too large");
+    this.name = "RequestBodyTooLargeError";
+  }
+}
+
+function readRawBody(req: IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    req.on("data", (c) => {
+      if (settled) return;
+      const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+      size += chunk.length;
+      if (size > MAX_REQUEST_BYTES) {
+        settled = true;
+        req.destroy();
+        reject(new RequestBodyTooLargeError());
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        reject(err);
+      }
+    });
+  });
+}
+
 function readJson(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (c) => chunks.push(c));
-    req.on("end", () => {
-      let buf = Buffer.concat(chunks);
+    let size = 0;
+    let settled = false;
+    req.on("data", (c) => {
+      if (settled) return;
+      const chunk = Buffer.isBuffer(c) ? c : Buffer.from(c);
+      size += chunk.length;
+      if (size > MAX_REQUEST_BYTES) {
+        settled = true;
+        req.destroy();
+        reject(new RequestBodyTooLargeError());
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", async () => {
+      if (settled) return;
+      settled = true;
+      let buf: Buffer = Buffer.concat(chunks);
       
       const isZstd = buf.length >= 4 && buf[0] === 0x28 && buf[1] === 0xb5 && buf[2] === 0x2f && buf[3] === 0xfd;
       const hasEncoding = req.headers["content-encoding"] === "zstd";
       
       if (isZstd || hasEncoding) {
         try {
-          buf = execSync("zstd -d", { input: buf, stdio: ["pipe", "pipe", "ignore"] });
+          buf = await decompressZstd(buf);
+          if (buf.length > MAX_DECOMPRESSED_BYTES) {
+            reject(new RequestBodyTooLargeError());
+            return;
+          }
         } catch (zErr: any) {
           console.error("[Server Error] Failed to decompress zstd payload:", zErr.message);
+          reject(new Error("Failed to decompress request body"));
+          return;
         }
       }
 
@@ -668,7 +752,12 @@ function readJson(req: IncomingMessage): Promise<unknown> {
         reject(err as Error);
       }
     });
-    req.on("error", reject);
+    req.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        reject(err);
+      }
+    });
   });
 }
 
@@ -692,16 +781,27 @@ async function handleV1Internal(config: Config, req: IncomingMessage, res: Serve
   const shouldLog = isPromptEndpoint(urlStr);
 
   // Read body
+  let bodyBuffer: Buffer = Buffer.alloc(0);
   let rawBody = "";
   try {
-    rawBody = await new Promise<string>((resolve, reject) => {
-      let data = "";
-      req.on("data", (chunk) => (data += chunk));
-      req.on("end", () => resolve(data));
-      req.on("error", reject);
-    });
+    bodyBuffer = await readRawBody(req);
+    const isZstd = bodyBuffer.length >= 4 && bodyBuffer[0] === 0x28 && bodyBuffer[1] === 0xb5 && bodyBuffer[2] === 0x2f && bodyBuffer[3] === 0xfd;
+    const hasEncoding = req.headers["content-encoding"] === "zstd";
+    if (isZstd || hasEncoding) {
+      bodyBuffer = await decompressZstd(bodyBuffer);
+    }
+    if (bodyBuffer.length > MAX_DECOMPRESSED_BYTES) {
+      throw new RequestBodyTooLargeError();
+    }
+    rawBody = bodyBuffer.toString("utf8");
   } catch (err) {
+    if (err instanceof RequestBodyTooLargeError) {
+      send(res, 413, { error: { message: "request body too large", type: "invalid_request_error" } });
+      return;
+    }
     console.error(`[Proxy Error] Failed to read request body:`, err);
+    send(res, 400, { error: { message: "invalid request body", type: "invalid_request_error" } });
+    return;
   }
 
   // Only log details for prompt-bearing endpoints, skip background noise
@@ -723,14 +823,13 @@ async function handleV1Internal(config: Config, req: IncomingMessage, res: Serve
           // Search backwards for the most recent message that contains text parts
           for (let i = reqObj.contents.length - 1; i >= 0; i--) {
             const item = reqObj.contents[i];
+            if (item && item.role !== "user") {
+              continue;
+            }
             const parts = item?.parts;
             if (Array.isArray(parts)) {
               const textParts = parts.filter((p: any) => typeof p.text === "string" && p.text.trim().length > 0);
               if (textParts.length > 0) {
-                // Skip tool execution responses
-                if (item.role === "tool" || item.role === "function") {
-                  continue;
-                }
                 prompt = textParts.map((p: any) => p.text).join(" ");
                 break;
               }
@@ -751,7 +850,9 @@ async function handleV1Internal(config: Config, req: IncomingMessage, res: Serve
         }
 
         // Deduplicate: only log if this prompt is different from the last logged prompt
-        const userMsgCount = Array.isArray(reqObj.messages) ? reqObj.messages.filter((m: any) => m && m.role === "user").length : 0;
+        const userMsgCount = Array.isArray(reqObj.contents)
+          ? reqObj.contents.filter((m: any) => m && m.role === "user").length
+          : (Array.isArray(reqObj.messages) ? reqObj.messages.filter((m: any) => m && m.role === "user").length : 0);
         if (cleanPrompt && (cleanPrompt !== lastLoggedPrompt || userMsgCount !== lastLoggedUserMessageCount)) {
           lastLoggedPrompt = cleanPrompt;
           lastLoggedUserMessageCount = userMsgCount;
@@ -760,7 +861,9 @@ async function handleV1Internal(config: Config, req: IncomingMessage, res: Serve
           console.log(`\x1b[35m○\x1b[0m Prompt: "${trimmed.replace(/\s+/g, " ")}" \x1b[90m(Model: ${model || "unknown"})\x1b[0m`);
         }
 
-        if (reqObj.messages) {
+        if (reqObj.contents) {
+          logActions(reqObj.contents, "openai");
+        } else if (reqObj.messages) {
           logActions(reqObj.messages, "openai");
         }
       }
@@ -795,8 +898,8 @@ async function handleV1Internal(config: Config, req: IncomingMessage, res: Serve
     }
   });
 
-  if (rawBody) {
-    proxyReq.write(rawBody);
+  if (bodyBuffer.length > 0) {
+    proxyReq.write(bodyBuffer);
   }
   proxyReq.end();
 }
@@ -874,6 +977,22 @@ function logActions(messages: any[], dialect: "openai" | "anthropic") {
         }
       }
     }
+    // Gemini Tool Use
+    else if (Array.isArray(msg.parts)) {
+      for (const part of msg.parts) {
+        if (part && part.functionCall) {
+          const fc = part.functionCall;
+          const id = fc.id || fc.name;
+          if (id) {
+            toolNamesById.set(id, fc.name);
+            if (!loggedToolCallIds.has(id)) {
+              loggedToolCallIds.add(id);
+              logToolCall(fc.name, fc.args);
+            }
+          }
+        }
+      }
+    }
   }
 
   // 2. Scan for Tool Results
@@ -920,6 +1039,25 @@ function logActions(messages: any[], dialect: "openai" | "anthropic") {
             }
             const isError = part.is_error === true || /\bfail(ed|ing|ure|s)?\b|error:|assertion\s?error|exit status|command failed/i.test(contentStr);
             logToolResult(name, contentStr, isError);
+          }
+        }
+      }
+    }
+    // Gemini Tool Result
+    else if (Array.isArray(msg.parts)) {
+      for (const part of msg.parts) {
+        if (part && part.functionResponse) {
+          const fr = part.functionResponse;
+          const id = fr.id || fr.name;
+          if (id) {
+            if (!loggedToolResultIds.has(id)) {
+              loggedToolResultIds.add(id);
+              const name = fr.name || toolNamesById.get(id) || "tool";
+              const output = fr.response?.output || fr.response || "";
+              const content = typeof output === "string" ? output : JSON.stringify(output);
+              const isError = /\bfail(ed|ing|ure|s)?\b|error:|assertion\s?error|exit status|command failed/i.test(content);
+              logToolResult(name, content, isError);
+            }
           }
         }
       }
